@@ -6,7 +6,7 @@
 Summary: Graphical Boot Animation and Logger
 Name: plymouth
 Version: 0.8.3
-Release: 22.sl6.1
+Release: 24.sl6
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://freedesktop.org/software/plymouth/releases/%{name}-%{version}.tar.bz2
@@ -52,6 +52,7 @@ Patch11: build-details-in.patch
 Patch12: filter-out-duplicate-consoles.patch
 # https://bugzilla.redhat.com/show_bug.cgi?id=625209
 Patch13: handle-cloned-outputs.patch
+Patch14: serial-console-fixes.patch
 Patch99: plymouth-0.8.0-everything-is-better-in-red.patch
 
 %description
@@ -296,7 +297,7 @@ plugin.
 %patch11 -p1 -b .build-details-in
 %patch12 -p1 -b .filter-out-duplicate-consoles
 %patch13 -p1 -b .handle-cloned-outputs
-# TJD Not everything is better in red
+%patch14 -p1 -b .serial-console-fixes
 #%patch99 -p1 -b .red
 
 # Change the default theme
@@ -490,8 +491,18 @@ fi
 %defattr(-, root, root)
 
 %changelog
-* Wed Jun 22 2011 Troy Dawson <dawson@fnal.gov> 0.8.3-22.sl6.1
-- Removed the red colors for text mode
+* Tue Dec 06 2011 Scientific Linux Auto Patch Process <SCIENTIFIC-LINUX-DEVEL@LISTSERV.FNAL.GOV> 0.8.3-24.sl6
+TUV prefers red, we aim towards blue
+- Prevented application of patch plymouth-0.8.0-everything-is-better-in-red.patch
+  If we remove this patch everything turns blue
+
+* Thu Oct 27 2011 Ray Strode <rstrode@redhat.com> 0.8.3-24
+- More fixes for multiple consoles on kernel command line
+  Related: #741515
+
+* Wed Oct 19 2011 Ray Strode <rstrode@redhat.com> 0.8.3-23
+- Fix multiple console= lines on kernel command line
+  Resolves: #741515 #719569
 
 * Wed Mar 09 2011 Ray Strode <rstrode@redhat.com> 0.8.3-22
 - Don't second guess the kernel and light up off monitors

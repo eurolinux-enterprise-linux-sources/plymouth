@@ -1,6 +1,16 @@
-diff -up plymouth-0.8.3/src/main.c.filter-out-duplicate-consoles plymouth-0.8.3/src/main.c
---- plymouth-0.8.3/src/main.c.filter-out-duplicate-consoles	2011-01-25 14:04:56.076077709 -0500
-+++ plymouth-0.8.3/src/main.c	2011-01-25 14:13:19.374073508 -0500
+From c7a9409a07a26461cabe22b7b1db1b108651a6c2 Mon Sep 17 00:00:00 2001
+From: Ray Strode <rstrode@redhat.com>
+Date: Thu, 13 Oct 2011 00:32:53 -0400
+Subject: [PATCH] main: filter out duplicate consoles
+
+---
+ src/main.c |   66 ++++++++++++++++++++++++++++++++++++++++++++---------------
+ 1 files changed, 49 insertions(+), 17 deletions(-)
+
+diff --git a/src/main.c b/src/main.c
+index ce9d525..33c8f44 100644
+--- a/src/main.c
++++ b/src/main.c
 @@ -43,6 +43,7 @@
  #include "ply-boot-server.h"
  #include "ply-boot-splash.h"
@@ -109,3 +119,6 @@ diff -up plymouth-0.8.3/src/main.c.filter-out-duplicate-consoles plymouth-0.8.3/
  }
  
  static bool
+-- 
+1.7.1
+
