@@ -6,7 +6,7 @@
 Summary: Graphical Boot Animation and Logger
 Name: plymouth
 Version: 0.8.3
-Release: 24.sl6
+Release: 27.sl6.1
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://freedesktop.org/software/plymouth/releases/%{name}-%{version}.tar.bz2
@@ -14,6 +14,7 @@ Source1: boot-duration
 Source2: plymouth-update-initrd
 Source3: rings.plymouth
 Source4: lock.png
+Source5:	plymouth.ini
 
 URL: http://freedesktop.org/software/plymouth/releases
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -24,10 +25,13 @@ Requires(post): plymouth-scripts
 Requires: initscripts >= 8.83-1
 
 BuildRequires: pkgconfig(libdrm)
+%ifarch %{ix86} x86_64 ia64
 BuildRequires: pkgconfig(libdrm_intel)
+%endif
 BuildRequires: pkgconfig(libdrm_radeon)
 BuildRequires: pkgconfig(libdrm_nouveau)
 BuildRequires: kernel-headers
+BuildRequires: autoconf automake libtool
 
 Obsoletes: plymouth-plugin-pulser < 0.7.0-0.2009.05.08.2
 Obsoletes: plymouth-theme-pulser < 0.7.0-0.2009.05.08.2
@@ -53,7 +57,7 @@ Patch12: filter-out-duplicate-consoles.patch
 # https://bugzilla.redhat.com/show_bug.cgi?id=625209
 Patch13: handle-cloned-outputs.patch
 Patch14: serial-console-fixes.patch
-Patch99: plymouth-0.8.0-everything-is-better-in-red.patch
+Patch100: plymouth-0.8.3-i915.patch
 
 %description
 Plymouth provides an attractive graphical boot animation in
@@ -298,7 +302,8 @@ plugin.
 %patch12 -p1 -b .filter-out-duplicate-consoles
 %patch13 -p1 -b .handle-cloned-outputs
 %patch14 -p1 -b .serial-console-fixes
-#%patch99 -p1 -b .red
+
+%patch100 -p1 -b .i915
 
 # Change the default theme
 sed -i -e 's/fade-in/rings/g' src/plymouthd.defaults
@@ -307,6 +312,7 @@ sed -i -e 's/fade-in/rings/g' src/plymouthd.defaults
 iconv -f latin1 -t utf8 docs/plymouth.8 -o docs/plymouth.8.new && mv docs/plymouth.8{.new,}
 
 %build
+autoreconf -v -i -f || exit 1
 %configure --enable-tracing --disable-tests                      \
            --with-logo=%{_datadir}/pixmaps/system-logo-white.png \
            --with-background-start-color-stop=0xCC0000           \
@@ -491,10 +497,22 @@ fi
 %defattr(-, root, root)
 
 %changelog
-* Tue Dec 06 2011 Scientific Linux Auto Patch Process <SCIENTIFIC-LINUX-DEVEL@LISTSERV.FNAL.GOV> 0.8.3-24.sl6
-TUV prefers red, we aim towards blue
-- Prevented application of patch plymouth-0.8.0-everything-is-better-in-red.patch
-  If we remove this patch everything turns blue
+* Thu Aug 07 2014 Scientific Linux Auto Patch Process <SCIENTIFIC-LINUX-DEVEL@LISTSERV.FNAL.GOV>
+- Removed Patch: plymouth-0.8.0-everything-is-better-in-red.patch
+-->  If we remove this patch everything turns blue, not TUV red
+- Added Source: plymouth.ini
+-->  Config file for automated patch script
+- Ran Regex: (Release: .*)%{\?dist}(.*) => \1.sl6\2
+-->  Modify release string to note changes
+
+* Thu Jul 31 2014 Ray Strode <rstrode@redhat.com> 0.8.3-27.1
+- use tcsetattr(...TCSANOW...) instead of tcsetattr(...TCSAFLUSH...)
+  to work around a kernel bug leading to blocked boot.
+  Resolves: #1125325
+
+* Wed Sep 12 2012 Adam Jackson <ajax@redhat.com> 0.8.3-27
+- Rebuild to not link against libdrm_intel on arches where it can't exist
+  Resolves: #853207
 
 * Thu Oct 27 2011 Ray Strode <rstrode@redhat.com> 0.8.3-24
 - More fixes for multiple consoles on kernel command line
