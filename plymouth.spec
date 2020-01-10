@@ -6,7 +6,7 @@
 Summary: Graphical Boot Animation and Logger
 Name: plymouth
 Version: 0.8.3
-Release: 27.sl6
+Release: 29.sl6
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://freedesktop.org/software/plymouth/releases/%{name}-%{version}.tar.bz2
@@ -14,6 +14,7 @@ Source1: boot-duration
 Source2: plymouth-update-initrd
 Source3: rings.plymouth
 Source4: lock.png
+Source5:	plymouth.ini
 
 URL: http://freedesktop.org/software/plymouth/releases
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -56,7 +57,6 @@ Patch12: filter-out-duplicate-consoles.patch
 # https://bugzilla.redhat.com/show_bug.cgi?id=625209
 Patch13: handle-cloned-outputs.patch
 Patch14: serial-console-fixes.patch
-Patch99: plymouth-0.8.0-everything-is-better-in-red.patch
 Patch100: plymouth-0.8.3-i915.patch
 
 %description
@@ -302,7 +302,7 @@ plugin.
 %patch12 -p1 -b .filter-out-duplicate-consoles
 %patch13 -p1 -b .handle-cloned-outputs
 %patch14 -p1 -b .serial-console-fixes
-#%patch99 -p1 -b .red
+
 %patch100 -p1 -b .i915
 
 # Change the default theme
@@ -497,10 +497,22 @@ fi
 %defattr(-, root, root)
 
 %changelog
-* Thu Feb 21 2013 Scientific Linux Auto Patch Process <SCIENTIFIC-LINUX-DEVEL@LISTSERV.FNAL.GOV> 0.8.3-27.sl6
-TUV prefers red, we aim towards blue
-- Prevented application of patch plymouth-0.8.0-everything-is-better-in-red.patch
-  If we remove this patch everything turns blue
+* Wed Mar 22 2017 Scientific Linux Auto Patch Process <SCIENTIFIC-LINUX-DEVEL@LISTSERV.FNAL.GOV>
+- Removed Patch: plymouth-0.8.0-everything-is-better-in-red.patch
+-->  If we remove this patch everything turns blue, not TUV red
+- Added Source: plymouth.ini
+-->  Config file for automated patch script
+- Ran Regex: (Release: .*)%{\?dist}(.*) => \1.sl6\2
+-->  Modify release string to note changes
+
+* Thu Nov 03 2016 Ray Strode <rstrode@redhat.com> - 0.8.3-29
+- Ignore duplicate console on kernel command line
+  Resolves: #1076265
+
+* Thu Jul 31 2014 Ray Strode <rstrode@redhat.com> 0.8.3-28
+- use tcsetattr(...TCSANOW...) instead of tcsetattr(...TCSAFLUSH...)
+  to work around a kernel bug leading to blocked boot.
+  Resolves: #1120904
 
 * Wed Sep 12 2012 Adam Jackson <ajax@redhat.com> 0.8.3-27
 - Rebuild to not link against libdrm_intel on arches where it can't exist

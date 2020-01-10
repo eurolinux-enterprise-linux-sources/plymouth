@@ -1,7 +1,7 @@
 From 11a61a9b4a221dcbbae83e407cf2b4eb3c4ea7d7 Mon Sep 17 00:00:00 2001
 From: Ray Strode <rstrode@redhat.com>
 Date: Wed, 12 Oct 2011 15:50:56 -0400
-Subject: [PATCH 1/6] main: fix kernel command line parsing
+Subject: [PATCH 1/8] main: fix kernel command line parsing
 
 check_for_consoles has another bug (surprised?) where it would
 jump too many characters forward if the command line has
@@ -47,7 +47,7 @@ index 33c8f44..d29b15c 100644
 From 41f5b628adada11130c8ea44d1f0ee3ae934e62e Mon Sep 17 00:00:00 2001
 From: Ray Strode <rstrode@redhat.com>
 Date: Wed, 12 Oct 2011 23:32:36 -0400
-Subject: [PATCH 2/6] boot-splash: deduce terminal from text display
+Subject: [PATCH 2/8] boot-splash: deduce terminal from text display
 
 Right now we pass a terminal to the constructor of the boot splash
 object.  This terminal is used for going to KD_TEXT mode when
@@ -223,7 +223,7 @@ index d29b15c..bf0518f 100644
 From 650334e910f6dfd30e268cc172453f3dd7a95547 Mon Sep 17 00:00:00 2001
 From: Ray Strode <rstrode@redhat.com>
 Date: Wed, 12 Oct 2011 22:38:53 -0400
-Subject: [PATCH 3/6] main: don't overwrite state->terminal if there are multiple consoles
+Subject: [PATCH 3/8] main: don't overwrite state->terminal if there are multiple consoles
 
 We call the add_display_and_keyboard_for_terminal function for
 every console passed into the kernel command line and once for
@@ -367,7 +367,7 @@ index bf0518f..742a54b 100644
 From 68ec6954ec53fd91dd1b3696beb8a6f6fd2bfa2f Mon Sep 17 00:00:00 2001
 From: Ray Strode <rstrode@redhat.com>
 Date: Thu, 13 Oct 2011 00:01:42 -0400
-Subject: [PATCH 4/6] main: rename state->terminal to state->local_console_terminal
+Subject: [PATCH 4/8] main: rename state->terminal to state->local_console_terminal
 
 state->terminal is used for VT handling code.  To make it clear
 what its role is, rename it to state->local_console_terminal.
@@ -500,7 +500,7 @@ index 742a54b..9dbf33b 100644
 From fdd97d8ea65085443a0323b5dcff3227e260b08b Mon Sep 17 00:00:00 2001
 From: Ray Strode <rstrode@redhat.com>
 Date: Thu, 13 Oct 2011 00:26:54 -0400
-Subject: [PATCH 5/6] main: close all terminals, not just local console terminal
+Subject: [PATCH 5/8] main: close all terminals, not just local console terminal
 
 It's important we close all terminals in the shutdown path,
 so they all get unlocked and returned to cooked mode.
@@ -606,7 +606,7 @@ index 9dbf33b..9479641 100644
 From 03e6e428d56f45d206b7a5c8c98a6c5cd7ec4942 Mon Sep 17 00:00:00 2001
 From: Ray Strode <rstrode@redhat.com>
 Date: Thu, 27 Oct 2011 16:02:35 -0400
-Subject: [PATCH 6/6] main: add a keyboard for each console
+Subject: [PATCH 6/8] main: add a keyboard for each console
 
 Since we show output on every console, we
 should read input from every console.
@@ -808,4 +808,127 @@ index 9479641..3e672b5 100644
      {
 -- 
 1.7.1
+
+From 03e6e428d56f45d206b7a5c8c98a6c5cd7ec4942 Mon Sep 17 00:00:00 2001
+From: Ray Strode <rstrode@redhat.com>
+Date: Thu, 27 Oct 2011 16:02:35 -0400
+Subject: [PATCH 7/8] terminal: use TCSANOW instead of TCSAFLUSH
+
+This works around a kernel bug causing boot to hang.
+
+diff --git a/src/main.c b/src/main.c
+--- a/src/libply-splash-core/ply-terminal.c.tcsanow	2014-07-31 10:31:43.298431398 -0400
++++ b/src/libply-splash-core/ply-terminal.c	2014-07-31 10:32:13.560127794 -0400
+@@ -248,7 +248,7 @@ ply_terminal_set_buffered_input (ply_ter
+       term_attributes.c_oflag |= OPOST;
+       term_attributes.c_lflag |= ECHO | ICANON | ISIG | IEXTEN;
+ 
+-      if (tcsetattr (terminal->fd, TCSAFLUSH, &term_attributes) != 0)
++      if (tcsetattr (terminal->fd, TCSANOW, &term_attributes) != 0)
+         return false;
+ 
+       terminal->is_unbuffered = false;
+@@ -256,7 +256,7 @@ ply_terminal_set_buffered_input (ply_ter
+       return true;
+     }
+ 
+-  if (tcsetattr (terminal->fd, TCSAFLUSH, &terminal->original_term_attributes) != 0)
++  if (tcsetattr (terminal->fd, TCSANOW, &terminal->original_term_attributes) != 0)
+     return false;
+ 
+   terminal->is_unbuffered = false;
+diff --git a/src/main.c b/src/main.c
+--- a/src/main.c.tcsanow	2014-07-31 10:31:30.828556502 -0400
++++ b/src/main.c	2014-07-31 10:31:53.592328124 -0400
+@@ -1971,7 +1971,7 @@ on_crash (int signum)
+     term_attributes.c_oflag |= OPOST;
+     term_attributes.c_lflag |= ECHO | ICANON | ISIG | IEXTEN;
+ 
+-    tcsetattr (fd, TCSAFLUSH, &term_attributes);
++    tcsetattr (fd, TCSANOW, &term_attributes);
+ 
+     close (fd);
+ 
+From 88f1fe920d82a2d1a022cc3d8ee70e3c1c0752e4 Mon Sep 17 00:00:00 2001
+From: Ray Strode <rstrode@redhat.com>
+Date: Thu, 3 Nov 2016 14:43:12 -0400
+Subject: [PATCH 8/8] hashtable: don't allow duplicate entries
+
+It's currently possible to insert the same key into the hashtable
+more than once, since we don't currently do a duplicate check.
+
+This commit fixes that.
+---
+ src/libply/ply-hashtable.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/libply/ply-hashtable.c b/src/libply/ply-hashtable.c
+index 7d8d648..dfb0c3c 100644
+--- a/src/libply/ply-hashtable.c
++++ b/src/libply/ply-hashtable.c
+@@ -112,60 +112,62 @@ ply_hashtable_new (ply_hashtable_hash_func_t    *hash_func,
+   return hashtable;
+ }
+ 
+ void
+ ply_hashtable_free (ply_hashtable_t *hashtable)
+ {
+   if (hashtable == NULL) return;
+   ply_bitarray_free (hashtable->dirty_node_bitmap);
+   ply_bitarray_free (hashtable->live_node_bitmap);
+   free(hashtable->nodes);
+   free(hashtable);
+ }
+ 
+ 
+ static void
+ ply_hashtable_insert_internal (ply_hashtable_t *hashtable,
+                                void            *key,
+                                void            *data)
+ {
+   unsigned int hash_index;
+   int step = 0;
+   
+ #ifdef PLY_HASHTABLE_ENABLE_TEST
+     /* Make sure the counts are synchronised with bitmap */
+   assert (ply_bitarray_count (hashtable->dirty_node_bitmap, hashtable->total_node_count) ==
+           (int) hashtable->dirty_node_count);
+   assert (ply_bitarray_count (hashtable->live_node_bitmap, hashtable->total_node_count) ==
+           (int) hashtable->live_node_count);
+ #endif /* PLY_HASHTABLE_ENABLE_TEST */
+ 
++  ply_hashtable_remove (hashtable, key);
++
+   hash_index = hashtable->hash_func (key);
+   hash_index &= hashtable->total_node_count - 1;
+ 
+   while (ply_bitarray_lookup (hashtable->dirty_node_bitmap, hash_index))
+     {
+       step++;
+       hash_index += step;
+       hash_index &= hashtable->total_node_count - 1;
+     }
+   ply_bitarray_set (hashtable->dirty_node_bitmap, hash_index);
+   ply_bitarray_set (hashtable->live_node_bitmap, hash_index);
+   hashtable->nodes[hash_index].key = key;
+   hashtable->nodes[hash_index].data = data;
+ 
+   hashtable->live_node_count++;
+   hashtable->dirty_node_count++;
+ }
+ 
+ 
+ void
+ ply_hashtable_resize (ply_hashtable_t *hashtable)
+ {
+   unsigned int newsize, oldsize;
+   unsigned int i;
+   struct _ply_hashtable_node *oldnodes;
+   ply_bitarray_t *old_live_node_bitmap;
+ 
+   newsize = (hashtable->live_node_count + 1) * 4; /* make table 4x to 8x the number of live elements (at least 8) */
+   MASKGEN (newsize);
+   newsize++;
+-- 
+2.7.4
 
