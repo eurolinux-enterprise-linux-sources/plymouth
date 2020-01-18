@@ -1,0 +1,1632 @@
+From 8fa6fec9d86dbe34be626652cda0fba4f4803223 Mon Sep 17 00:00:00 2001
+From: Ray Strode <rstrode@redhat.com>
+Date: Tue, 22 Oct 2013 18:34:46 -0400
+Subject: [PATCH 1/5] pixel-buffer: add tiling function
+
+It can be useful to tile a group of pixels across the screen
+(for e.g. backgrounds).
+
+This commit adds API to pixel buffer to do that tiling.
+
+A follow up commit will add support into ply-image so images can
+be loaded from disk and then tiled on screen.
+---
+ src/libply-splash-core/ply-pixel-buffer.c | 30 ++++++++++++++++++++++++++++++
+ src/libply-splash-core/ply-pixel-buffer.h |  4 ++++
+ 2 files changed, 34 insertions(+)
+
+diff --git a/src/libply-splash-core/ply-pixel-buffer.c b/src/libply-splash-core/ply-pixel-buffer.c
+index a612990..a860b7f 100644
+--- a/src/libply-splash-core/ply-pixel-buffer.c
++++ b/src/libply-splash-core/ply-pixel-buffer.c
+@@ -821,32 +821,62 @@ ply_pixel_buffer_rotate (ply_pixel_buffer_t *old_buffer,
+   bytes = ply_pixel_buffer_get_argb32_data (buffer);
+ 
+   double d = sqrt ((center_x * center_x +
+                     center_y * center_y));
+   double theta = atan2 (-center_y, -center_x) - theta_offset;
+   double start_x = center_x + d * cos (theta);
+   double start_y = center_y + d * sin (theta);
+   double step_x = cos (-theta_offset);
+   double step_y = sin (-theta_offset);
+   
+   for (y = 0; y < height; y++)
+     {
+       old_y = start_y;
+       old_x = start_x;
+       start_y += step_x;
+       start_x -= step_y;
+       for (x = 0; x < width; x++)
+         {
+           if (old_x < 0 || old_x > width || old_y < 0 || old_y > height)
+             bytes[x + y * width] = 0;
+           else
+             bytes[x + y * width] =
+                     ply_pixel_buffer_interpolate (old_buffer, old_x, old_y);
+           old_x += step_x;
+           old_y += step_y;
+         }
+     }
+   return buffer;
+ }
+ 
++ply_pixel_buffer_t *
++ply_pixel_buffer_tile (ply_pixel_buffer_t *old_buffer,
++                       long                width,
++                       long                height)
++{
++  long x, y;
++  long old_x, old_y;
++  long old_width, old_height;
++  uint32_t *bytes, *old_bytes;
++  ply_pixel_buffer_t *buffer;
++
++  buffer = ply_pixel_buffer_new (width, height);
++
++  old_bytes = ply_pixel_buffer_get_argb32_data (old_buffer);
++  bytes = ply_pixel_buffer_get_argb32_data (buffer);
++
++  old_width = old_buffer->area.width;
++  old_height = old_buffer->area.height;
++
++  for (y = 0; y < height; y++)
++    {
++      old_y = y % old_height;
++      for (x = 0; x < width; x++)
++        {
++          old_x = x % old_width;
++          bytes[x + y * width] = old_bytes[old_x + old_y * old_width];
++        }
++    }
++  return buffer;
++}
+ 
+ /* vim: set ts=4 sw=4 et ai ci cino={.5s,^-2,+.5s,t0,g0,e-2,n-2,p2s,(0,=.5s,:.5s */
+diff --git a/src/libply-splash-core/ply-pixel-buffer.h b/src/libply-splash-core/ply-pixel-buffer.h
+index 47cdd52..e0dffda 100644
+--- a/src/libply-splash-core/ply-pixel-buffer.h
++++ b/src/libply-splash-core/ply-pixel-buffer.h
+@@ -97,34 +97,38 @@ void ply_pixel_buffer_fill_with_buffer_at_opacity (ply_pixel_buffer_t *canvas,
+                                                    ply_pixel_buffer_t *source,
+                                                    int                 x_offset,
+                                                    int                 y_offset,
+                                                    float               opacity);
+ void ply_pixel_buffer_fill_with_buffer_with_clip (ply_pixel_buffer_t *canvas,
+                                                   ply_pixel_buffer_t *source,
+                                                   int                 x_offset,
+                                                   int                 y_offset,
+                                                   ply_rectangle_t    *clip_area);
+ void ply_pixel_buffer_fill_with_buffer (ply_pixel_buffer_t *canvas,
+                                         ply_pixel_buffer_t *source,
+                                         int                 x_offset,
+                                         int                 y_offset);
+ 
+ 
+ void ply_pixel_buffer_push_clip_area (ply_pixel_buffer_t *buffer,
+                                       ply_rectangle_t    *clip_area);
+ void ply_pixel_buffer_pop_clip_area (ply_pixel_buffer_t *buffer);
+ 
+ uint32_t *ply_pixel_buffer_get_argb32_data (ply_pixel_buffer_t *buffer);
+ 
+ ply_pixel_buffer_t *ply_pixel_buffer_resize (ply_pixel_buffer_t *old_buffer,
+                                              long                width,
+                                              long                height);
+ 
+ ply_pixel_buffer_t *ply_pixel_buffer_rotate (ply_pixel_buffer_t *old_buffer,
+                                              long                center_x,
+                                              long                center_y,
+                                              double              theta_offset);
+ 
++ply_pixel_buffer_t *ply_pixel_buffer_tile (ply_pixel_buffer_t *old_buffer,
++                                           long                width,
++                                           long                height);
++
+ #endif
+ 
+ #endif /* PLY_PIXEL_BUFFER_H */
+ /* vim: set ts=4 sw=4 expandtab autoindent cindent cino={.5s,(0: */
+-- 
+1.8.3.1
+
+
+From fc440513d337ca15067039383502f73a0fe2796f Mon Sep 17 00:00:00 2001
+From: Ray Strode <rstrode@redhat.com>
+Date: Tue, 22 Oct 2013 18:36:15 -0400
+Subject: [PATCH 2/5] ply-image: add tiling support
+
+This follow up commit adds tiling support to images, so
+that splash screens can have been background patterns instead
+of just background colors.
+---
+ src/libply-splash-graphics/ply-image.c | 15 +++++++++++++++
+ src/libply-splash-graphics/ply-image.h |  1 +
+ 2 files changed, 16 insertions(+)
+
+diff --git a/src/libply-splash-graphics/ply-image.c b/src/libply-splash-graphics/ply-image.c
+index be85809..7d21946 100644
+--- a/src/libply-splash-graphics/ply-image.c
++++ b/src/libply-splash-graphics/ply-image.c
+@@ -227,53 +227,68 @@ ply_image_resize (ply_image_t *image,
+                   long         width,
+                   long         height)
+ {
+   ply_image_t *new_image;
+   
+   new_image = ply_image_new (image->filename);
+ 
+   new_image->buffer = ply_pixel_buffer_resize (image->buffer,
+                                                width,
+                                                height);
+   return new_image;
+ }
+ 
+ ply_image_t *
+ ply_image_rotate (ply_image_t *image,
+                   long         center_x,
+                   long         center_y,
+                   double       theta_offset)
+ {
+   ply_image_t *new_image;
+   
+   new_image = ply_image_new (image->filename);
+   
+   new_image->buffer = ply_pixel_buffer_rotate (image->buffer,
+                                                center_x,
+                                                center_y,
+                                                theta_offset);
+   return new_image;
+ }
+ 
++ply_image_t *
++ply_image_tile (ply_image_t *image,
++                long         width,
++                long         height)
++{
++  ply_image_t *new_image;
++
++  new_image = ply_image_new (image->filename);
++
++  new_image->buffer = ply_pixel_buffer_tile (image->buffer,
++                                             width,
++                                             height);
++  return new_image;
++}
++
+ ply_pixel_buffer_t *
+ ply_image_get_buffer (ply_image_t *image)
+ {
+   assert (image != NULL);
+ 
+   return image->buffer;
+ }
+ 
+ ply_pixel_buffer_t *
+ ply_image_convert_to_pixel_buffer (ply_image_t *image)
+ {
+   ply_pixel_buffer_t *buffer;
+ 
+   assert (image != NULL);
+ 
+   buffer = image->buffer;
+   image->buffer = NULL;
+   ply_image_free (image);
+   
+   return buffer;
+ }
+ 
+ /* vim: set ts=4 sw=4 expandtab autoindent cindent cino={.5s,(0: */
+diff --git a/src/libply-splash-graphics/ply-image.h b/src/libply-splash-graphics/ply-image.h
+index 66fa520..5bda567 100644
+--- a/src/libply-splash-graphics/ply-image.h
++++ b/src/libply-splash-graphics/ply-image.h
+@@ -12,37 +12,38 @@
+  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  * GNU General Public License for more details.
+  *
+  * You should have received a copy of the GNU General Public License
+  * along with this program; if not, write to the Free Software
+  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+  * 02111-1307, USA.
+  *
+  * Written By: Ray Strode <rstrode@redhat.com>
+  */
+ #ifndef PLY_IMAGE_H
+ #define PLY_IMAGE_H
+ 
+ #include "ply-pixel-buffer.h"
+ 
+ #include <stdbool.h>
+ #include <stdint.h>
+ #include <unistd.h>
+ 
+ typedef struct _ply_image ply_image_t;
+ 
+ #ifndef PLY_HIDE_FUNCTION_DECLARATIONS
+ ply_image_t *ply_image_new (const char *filename);
+ void ply_image_free (ply_image_t *image);
+ bool ply_image_load (ply_image_t *image);
+ uint32_t *ply_image_get_data (ply_image_t *image);
+ long ply_image_get_width (ply_image_t *image);
+ long ply_image_get_height (ply_image_t *image);
+ ply_image_t *ply_image_resize (ply_image_t *image, long width, long height);
+ ply_image_t *ply_image_rotate (ply_image_t *oldimage, long center_x, long center_y, double theta_offset);
++ply_image_t *ply_image_tile (ply_image_t *image, long width, long height);
+ ply_pixel_buffer_t *ply_image_get_buffer (ply_image_t *image);
+ ply_pixel_buffer_t *ply_image_convert_to_pixel_buffer (ply_image_t *image);
+ 
+ #endif
+ 
+ #endif /* PLY_IMAGE_H */
+ /* vim: set ts=4 sw=4 expandtab autoindent cindent cino={.5s,(0: */
+-- 
+1.8.3.1
+
+
+From 257408d44d1b5d0dc202f60f79d3d8f5c3427413 Mon Sep 17 00:00:00 2001
+From: Ray Strode <rstrode@redhat.com>
+Date: Tue, 22 Oct 2013 19:24:14 -0400
+Subject: [PATCH 3/5] two-step: add support for tiled background image
+
+If there's a file named background-tile.png in the theme
+then it will get used as the background behind the other
+content in place of the background gradient.
+---
+ src/plugins/splash/two-step/plugin.c | 45 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 45 insertions(+)
+
+diff --git a/src/plugins/splash/two-step/plugin.c b/src/plugins/splash/two-step/plugin.c
+index 541a108..2c6d97a 100644
+--- a/src/plugins/splash/two-step/plugin.c
++++ b/src/plugins/splash/two-step/plugin.c
+@@ -64,70 +64,72 @@
+ #define FRAMES_PER_SECOND 30
+ #endif
+ 
+ #ifndef SHOW_ANIMATION_PERCENT
+ #define SHOW_ANIMATION_PERCENT 0.9
+ #endif
+ 
+ typedef enum {
+    PLY_BOOT_SPLASH_DISPLAY_NORMAL,
+    PLY_BOOT_SPLASH_DISPLAY_QUESTION_ENTRY,
+    PLY_BOOT_SPLASH_DISPLAY_PASSWORD_ENTRY
+ } ply_boot_splash_display_type_t;
+ 
+ typedef enum {
+    PROGRESS_FUNCTION_TYPE_WWOODS,
+    PROGRESS_FUNCTION_TYPE_LINEAR,
+ } progress_function_t;
+ 
+ typedef struct
+ {
+   ply_boot_splash_plugin_t *plugin;
+   ply_pixel_display_t *display;
+   ply_entry_t *entry;
+   ply_animation_t *end_animation;
+   ply_progress_animation_t *progress_animation;
+   ply_throbber_t *throbber;
+   ply_label_t *label;
+   ply_label_t *message_label;
+   ply_rectangle_t box_area, lock_area;
+   ply_trigger_t *end_trigger;
++  ply_image_t *background_image;
+ } view_t;
+ 
+ struct _ply_boot_splash_plugin
+ {
+   ply_event_loop_t *loop;
+   ply_boot_splash_mode_t mode;
+   ply_image_t *lock_image;
+   ply_image_t *box_image;
+   ply_image_t *corner_image;
+   ply_image_t *header_image;
++  ply_image_t *background_tile_image;
+   ply_list_t *views;
+ 
+   ply_boot_splash_display_type_t state;
+ 
+   double animation_horizontal_alignment;
+   double animation_vertical_alignment;
+   char *animation_dir;
+ 
+   ply_progress_animation_transition_t transition;
+   double transition_duration;
+ 
+   uint32_t background_start_color;
+   uint32_t background_end_color;
+ 
+   progress_function_t progress_function;
+ 
+   ply_trigger_t *idle_trigger;
+   ply_trigger_t *stop_trigger;
+ 
+   uint32_t root_is_mounted : 1;
+   uint32_t is_visible : 1;
+   uint32_t is_animating : 1;
+   uint32_t is_idle : 1;
+ };
+ 
+ ply_boot_splash_plugin_interface_t * ply_boot_splash_plugin_get_interface (void);
+ 
+ static void stop_animation (ply_boot_splash_plugin_t *plugin,
+                             ply_trigger_t            *idle_trigger);
+ 
+@@ -149,66 +151,83 @@ view_new (ply_boot_splash_plugin_t *plugin,
+ 
+   view->entry = ply_entry_new (plugin->animation_dir);
+   view->end_animation = ply_animation_new (plugin->animation_dir,
+                                            "animation-");
+   view->progress_animation = ply_progress_animation_new (plugin->animation_dir,
+                                                          "progress-");
+ 
+   view->throbber = ply_throbber_new (plugin->animation_dir,
+                                      "throbber-");
+   ply_progress_animation_set_transition (view->progress_animation,
+                                          plugin->transition,
+                                          plugin->transition_duration);
+ 
+   view->label = ply_label_new ();
+   view->message_label = ply_label_new ();
+ 
+   return view;
+ }
+ 
+ static void
+ view_free (view_t *view)
+ {
+ 
+   ply_entry_free (view->entry);
+   ply_animation_free (view->end_animation);
+   ply_progress_animation_free (view->progress_animation);
+   ply_throbber_free (view->throbber);
+   ply_label_free (view->label);
+   ply_label_free (view->message_label);
+ 
++  if (view->background_image != NULL)
++    ply_image_free (view->background_image);
++
+   free (view);
+ }
+ 
+ static bool
+ view_load (view_t *view)
+ {
++  unsigned long screen_width, screen_height;
++  ply_boot_splash_plugin_t *plugin;
++
++  plugin = view->plugin;
++
++  screen_width = ply_pixel_display_get_width (view->display);
++  screen_height = ply_pixel_display_get_height (view->display);
++
++  if (plugin->background_tile_image != NULL)
++    {
++      ply_trace ("tiling background to %lux%lu", screen_width, screen_height);
++      view->background_image = ply_image_tile (plugin->background_tile_image, screen_width, screen_height);
++    }
++
+   ply_trace ("loading entry");
+   if (!ply_entry_load (view->entry))
+     return false;
+ 
+   ply_trace ("loading animation");
+   if (!ply_animation_load (view->end_animation))
+     {
+       ply_trace ("Default animation wouldn't load, "
+                  "falling back to old naming scheme");
+ 
+       /* fallback to throbber- for compatibility
+        */
+       ply_animation_free (view->end_animation);
+       view->end_animation = ply_animation_new (view->plugin->animation_dir,
+                                                "throbber-");
+       if (!ply_animation_load (view->end_animation))
+         {
+           ply_trace ("old naming scheme didn't work either");
+           return false;
+         }
+ 
+       ply_throbber_free (view->throbber);
+       view->throbber = NULL;
+     }
+ 
+   ply_trace ("loading progress animation");
+   if (!ply_progress_animation_load (view->progress_animation))
+     {
+       ply_trace ("optional progress animation wouldn't load");
+       ply_progress_animation_free (view->progress_animation);
+@@ -492,60 +511,66 @@ create_plugin (ply_key_file_t *key_file)
+   char *image_dir, *image_path;
+   char *alignment;
+   char *transition;
+   char *transition_duration;
+   char *color;
+   char *progress_function;
+ 
+   srand ((int) ply_get_timestamp ());
+   plugin = calloc (1, sizeof (ply_boot_splash_plugin_t));
+ 
+   image_dir = ply_key_file_get_value (key_file, "two-step", "ImageDir");
+ 
+   ply_trace ("Using '%s' as working directory", image_dir);
+ 
+   asprintf (&image_path, "%s/lock.png", image_dir);
+   plugin->lock_image = ply_image_new (image_path);
+   free (image_path);
+ 
+   asprintf (&image_path, "%s/box.png", image_dir);
+   plugin->box_image = ply_image_new (image_path);
+   free (image_path);
+ 
+   asprintf (&image_path, "%s/corner-image.png", image_dir);
+   plugin->corner_image = ply_image_new (image_path);
+   free (image_path);
+ 
+   asprintf (&image_path, "%s/header-image.png", image_dir);
+   plugin->header_image = ply_image_new (image_path);
+   free (image_path);
+ 
++  asprintf (&image_path, "%s/background-tile.png", image_dir);
++  plugin->background_tile_image = ply_image_new (image_path);
++
++  ply_trace ("loading background tile %s", image_path);
++  free (image_path);
++
+   plugin->animation_dir = image_dir;
+ 
+   alignment = ply_key_file_get_value (key_file, "two-step", "HorizontalAlignment");
+   if (alignment != NULL)
+     plugin->animation_horizontal_alignment = strtod (alignment, NULL);
+   else
+     plugin->animation_horizontal_alignment = .5;
+   free (alignment);
+ 
+   alignment = ply_key_file_get_value (key_file, "two-step", "VerticalAlignment");
+   if (alignment != NULL)
+     plugin->animation_vertical_alignment = strtod (alignment, NULL);
+   else
+     plugin->animation_vertical_alignment = .5;
+   free (alignment);
+ 
+   plugin->transition = PLY_PROGRESS_ANIMATION_TRANSITION_NONE;
+   transition = ply_key_file_get_value (key_file, "two-step", "Transition");
+   if (transition != NULL)
+     {
+       if (strcmp (transition, "fade-over") == 0)
+         plugin->transition = PLY_PROGRESS_ANIMATION_TRANSITION_FADE_OVER;
+       else if (strcmp (transition, "cross-fade") == 0)
+         plugin->transition = PLY_PROGRESS_ANIMATION_TRANSITION_CROSS_FADE;
+       else if (strcmp (transition, "merge-fade") == 0)
+         plugin->transition = PLY_PROGRESS_ANIMATION_TRANSITION_MERGE_FADE;
+     }
+   free (transition);
+ 
+   transition_duration = ply_key_file_get_value (key_file, "two-step", "TransitionDuration");
+@@ -626,60 +651,63 @@ free_views (ply_boot_splash_plugin_t *plugin)
+   plugin->views = NULL;
+ }
+ 
+ static void
+ destroy_plugin (ply_boot_splash_plugin_t *plugin)
+ {
+   if (plugin == NULL)
+     return;
+ 
+   ply_trace ("destroying plugin");
+ 
+   if (plugin->loop != NULL)
+     {
+       stop_animation (plugin, NULL);
+ 
+       ply_event_loop_stop_watching_for_exit (plugin->loop, (ply_event_loop_exit_handler_t)
+                                              detach_from_event_loop,
+                                              plugin);
+       detach_from_event_loop (plugin);
+     }
+ 
+   ply_image_free (plugin->box_image);
+   ply_image_free (plugin->lock_image);
+ 
+   if (plugin->corner_image != NULL)
+     ply_image_free (plugin->corner_image);
+ 
+   if (plugin->header_image != NULL)
+     ply_image_free (plugin->header_image);
+ 
++  if (plugin->background_tile_image != NULL)
++    ply_image_free (plugin->background_tile_image);
++
+   free (plugin->animation_dir);
+   free_views (plugin);
+   free (plugin);
+ }
+ 
+ static void
+ start_end_animation (ply_boot_splash_plugin_t *plugin,
+                      ply_trigger_t            *trigger)
+ {
+   ply_trace ("starting end animation");
+ 
+   ply_list_node_t *node;
+ 
+   node = ply_list_get_first_node (plugin->views);
+   while (node != NULL)
+     {
+       ply_list_node_t *next_node;
+       view_t *view;
+       ply_trigger_t *throbber_trigger;
+ 
+       view = ply_list_node_get_data (node);
+       next_node = ply_list_get_next_node (plugin->views, node);
+ 
+       ply_trigger_ignore_next_pull (trigger);
+ 
+       if (view->throbber != NULL)
+         {
+           ply_trace ("stopping throbber");
+           view->end_trigger = trigger;
+           throbber_trigger = ply_trigger_new (NULL);
+@@ -786,60 +814,67 @@ static void
+ detach_from_event_loop (ply_boot_splash_plugin_t *plugin)
+ {
+   plugin->loop = NULL;
+ }
+ 
+ static void
+ draw_background (view_t             *view,
+                  ply_pixel_buffer_t *pixel_buffer,
+                  int                 x,
+                  int                 y,
+                  int                 width,
+                  int                 height)
+ {
+   ply_boot_splash_plugin_t *plugin;
+   ply_rectangle_t area;
+ 
+   plugin = view->plugin;
+ 
+   area.x = x;
+   area.y = y;
+   area.width = width;
+   area.height = height;
+ 
+   if (plugin->background_start_color != plugin->background_end_color)
+     ply_pixel_buffer_fill_with_gradient (pixel_buffer, &area,
+                                          plugin->background_start_color,
+                                          plugin->background_end_color);
+   else
+     ply_pixel_buffer_fill_with_hex_color (pixel_buffer, &area,
+                                           plugin->background_start_color);
++
++  if (view->background_image != NULL)
++    {
++      uint32_t *data;
++      data = ply_image_get_data (view->background_image);
++      ply_pixel_buffer_fill_with_argb32_data (pixel_buffer, &area, data);
++    }
+ }
+ 
+ static void
+ on_draw (view_t                   *view,
+          ply_pixel_buffer_t       *pixel_buffer,
+          int                       x,
+          int                       y,
+          int                       width,
+          int                       height)
+ {
+   ply_boot_splash_plugin_t *plugin;
+   ply_rectangle_t screen_area;
+   ply_rectangle_t image_area;
+ 
+   plugin = view->plugin;
+ 
+   draw_background (view, pixel_buffer, x, y, width, height);
+ 
+   ply_pixel_buffer_get_size (pixel_buffer, &screen_area);
+ 
+   if (plugin->state == PLY_BOOT_SPLASH_DISPLAY_QUESTION_ENTRY ||
+       plugin->state == PLY_BOOT_SPLASH_DISPLAY_PASSWORD_ENTRY  )
+     {
+       uint32_t *box_data, *lock_data;
+ 
+       box_data = ply_image_get_data (plugin->box_image);
+       ply_pixel_buffer_fill_with_argb32_data (pixel_buffer,
+                                               &view->box_area,
+                                               box_data);
+ 
+@@ -970,60 +1005,70 @@ show_splash_screen (ply_boot_splash_plugin_t *plugin,
+   ply_trace ("loading lock image");
+   if (!ply_image_load (plugin->lock_image))
+     return false;
+ 
+   ply_trace ("loading box image");
+   if (!ply_image_load (plugin->box_image))
+     return false;
+ 
+   if (plugin->corner_image != NULL)
+     {
+       ply_trace ("loading corner image");
+ 
+       if (!ply_image_load (plugin->corner_image))
+         {
+           ply_image_free (plugin->corner_image);
+           plugin->corner_image = NULL;
+         }
+     }
+ 
+   if (plugin->header_image != NULL)
+     {
+       ply_trace ("loading header image");
+ 
+       if (!ply_image_load (plugin->header_image))
+         {
+           ply_image_free (plugin->header_image);
+           plugin->header_image = NULL;
+         }
+     }
+ 
++  if (plugin->background_tile_image != NULL)
++    {
++      ply_trace ("loading background tile image");
++      if (!ply_image_load (plugin->background_tile_image))
++        {
++          ply_image_free (plugin->background_tile_image);
++          plugin->background_tile_image = NULL;
++        }
++    }
++
+   if (!load_views (plugin))
+     {
+       ply_trace ("couldn't load views");
+       return false;
+     }
+ 
+   ply_event_loop_watch_for_exit (loop, (ply_event_loop_exit_handler_t)
+                                  detach_from_event_loop,
+                                  plugin);
+ 
+   ply_trace ("starting boot animations");
+   start_progress_animation (plugin);
+ 
+   plugin->is_visible = true;
+ 
+   return true;
+ }
+ 
+ static void
+ update_status (ply_boot_splash_plugin_t *plugin,
+                const char               *status)
+ {
+   assert (plugin != NULL);
+ }
+ 
+ static void
+ on_animation_stopped (ply_boot_splash_plugin_t *plugin)
+ {
+   if (plugin->idle_trigger != NULL)
+     {
+-- 
+1.8.3.1
+
+
+From 454fee71c109bfef897d9e8655d594838cd8a99b Mon Sep 17 00:00:00 2001
+From: Ray Strode <rstrode@redhat.com>
+Date: Thu, 24 Oct 2013 09:33:17 -0400
+Subject: [PATCH 4/5] two-step: add support for watermark
+
+The watermark is overlaid on top of the background but below all the
+other content.
+---
+ src/plugins/splash/two-step/plugin.c | 53 +++++++++++++++++++++++++++++++++++-
+ 1 file changed, 52 insertions(+), 1 deletion(-)
+
+diff --git a/src/plugins/splash/two-step/plugin.c b/src/plugins/splash/two-step/plugin.c
+index 2c6d97a..5cf333f 100644
+--- a/src/plugins/splash/two-step/plugin.c
++++ b/src/plugins/splash/two-step/plugin.c
+@@ -62,78 +62,82 @@
+ 
+ #ifndef FRAMES_PER_SECOND
+ #define FRAMES_PER_SECOND 30
+ #endif
+ 
+ #ifndef SHOW_ANIMATION_PERCENT
+ #define SHOW_ANIMATION_PERCENT 0.9
+ #endif
+ 
+ typedef enum {
+    PLY_BOOT_SPLASH_DISPLAY_NORMAL,
+    PLY_BOOT_SPLASH_DISPLAY_QUESTION_ENTRY,
+    PLY_BOOT_SPLASH_DISPLAY_PASSWORD_ENTRY
+ } ply_boot_splash_display_type_t;
+ 
+ typedef enum {
+    PROGRESS_FUNCTION_TYPE_WWOODS,
+    PROGRESS_FUNCTION_TYPE_LINEAR,
+ } progress_function_t;
+ 
+ typedef struct
+ {
+   ply_boot_splash_plugin_t *plugin;
+   ply_pixel_display_t *display;
+   ply_entry_t *entry;
+   ply_animation_t *end_animation;
+   ply_progress_animation_t *progress_animation;
+   ply_throbber_t *throbber;
+   ply_label_t *label;
+   ply_label_t *message_label;
+-  ply_rectangle_t box_area, lock_area;
++  ply_rectangle_t box_area, lock_area, watermark_area;
+   ply_trigger_t *end_trigger;
+   ply_image_t *background_image;
+ } view_t;
+ 
+ struct _ply_boot_splash_plugin
+ {
+   ply_event_loop_t *loop;
+   ply_boot_splash_mode_t mode;
+   ply_image_t *lock_image;
+   ply_image_t *box_image;
+   ply_image_t *corner_image;
+   ply_image_t *header_image;
+   ply_image_t *background_tile_image;
++  ply_image_t *watermark_image;
+   ply_list_t *views;
+ 
+   ply_boot_splash_display_type_t state;
+ 
++  double watermark_horizontal_alignment;
++  double watermark_vertical_alignment;
++
+   double animation_horizontal_alignment;
+   double animation_vertical_alignment;
+   char *animation_dir;
+ 
+   ply_progress_animation_transition_t transition;
+   double transition_duration;
+ 
+   uint32_t background_start_color;
+   uint32_t background_end_color;
+ 
+   progress_function_t progress_function;
+ 
+   ply_trigger_t *idle_trigger;
+   ply_trigger_t *stop_trigger;
+ 
+   uint32_t root_is_mounted : 1;
+   uint32_t is_visible : 1;
+   uint32_t is_animating : 1;
+   uint32_t is_idle : 1;
+ };
+ 
+ ply_boot_splash_plugin_interface_t * ply_boot_splash_plugin_get_interface (void);
+ 
+ static void stop_animation (ply_boot_splash_plugin_t *plugin,
+                             ply_trigger_t            *idle_trigger);
+ 
+ static void detach_from_event_loop (ply_boot_splash_plugin_t *plugin);
+ static void display_message (ply_boot_splash_plugin_t *plugin,
+                              const char               *message);
+ static void become_idle (ply_boot_splash_plugin_t *plugin,
+@@ -174,60 +178,68 @@ view_free (view_t *view)
+   ply_entry_free (view->entry);
+   ply_animation_free (view->end_animation);
+   ply_progress_animation_free (view->progress_animation);
+   ply_throbber_free (view->throbber);
+   ply_label_free (view->label);
+   ply_label_free (view->message_label);
+ 
+   if (view->background_image != NULL)
+     ply_image_free (view->background_image);
+ 
+   free (view);
+ }
+ 
+ static bool
+ view_load (view_t *view)
+ {
+   unsigned long screen_width, screen_height;
+   ply_boot_splash_plugin_t *plugin;
+ 
+   plugin = view->plugin;
+ 
+   screen_width = ply_pixel_display_get_width (view->display);
+   screen_height = ply_pixel_display_get_height (view->display);
+ 
+   if (plugin->background_tile_image != NULL)
+     {
+       ply_trace ("tiling background to %lux%lu", screen_width, screen_height);
+       view->background_image = ply_image_tile (plugin->background_tile_image, screen_width, screen_height);
+     }
+ 
++  if (plugin->watermark_image != NULL)
++    {
++      view->watermark_area.width = ply_image_get_width (plugin->watermark_image);
++      view->watermark_area.height = ply_image_get_height (plugin->watermark_image);
++      view->watermark_area.x = screen_width * plugin->watermark_horizontal_alignment - ply_image_get_width (plugin->watermark_image) * plugin->watermark_horizontal_alignment;
++      view->watermark_area.y = screen_height * plugin->watermark_vertical_alignment - ply_image_get_height (plugin->watermark_image) * plugin->watermark_vertical_alignment;
++    }
++
+   ply_trace ("loading entry");
+   if (!ply_entry_load (view->entry))
+     return false;
+ 
+   ply_trace ("loading animation");
+   if (!ply_animation_load (view->end_animation))
+     {
+       ply_trace ("Default animation wouldn't load, "
+                  "falling back to old naming scheme");
+ 
+       /* fallback to throbber- for compatibility
+        */
+       ply_animation_free (view->end_animation);
+       view->end_animation = ply_animation_new (view->plugin->animation_dir,
+                                                "throbber-");
+       if (!ply_animation_load (view->end_animation))
+         {
+           ply_trace ("old naming scheme didn't work either");
+           return false;
+         }
+ 
+       ply_throbber_free (view->throbber);
+       view->throbber = NULL;
+     }
+ 
+   ply_trace ("loading progress animation");
+   if (!ply_progress_animation_load (view->progress_animation))
+     {
+       ply_trace ("optional progress animation wouldn't load");
+       ply_progress_animation_free (view->progress_animation);
+@@ -517,76 +529,94 @@ create_plugin (ply_key_file_t *key_file)
+ 
+   srand ((int) ply_get_timestamp ());
+   plugin = calloc (1, sizeof (ply_boot_splash_plugin_t));
+ 
+   image_dir = ply_key_file_get_value (key_file, "two-step", "ImageDir");
+ 
+   ply_trace ("Using '%s' as working directory", image_dir);
+ 
+   asprintf (&image_path, "%s/lock.png", image_dir);
+   plugin->lock_image = ply_image_new (image_path);
+   free (image_path);
+ 
+   asprintf (&image_path, "%s/box.png", image_dir);
+   plugin->box_image = ply_image_new (image_path);
+   free (image_path);
+ 
+   asprintf (&image_path, "%s/corner-image.png", image_dir);
+   plugin->corner_image = ply_image_new (image_path);
+   free (image_path);
+ 
+   asprintf (&image_path, "%s/header-image.png", image_dir);
+   plugin->header_image = ply_image_new (image_path);
+   free (image_path);
+ 
+   asprintf (&image_path, "%s/background-tile.png", image_dir);
+   plugin->background_tile_image = ply_image_new (image_path);
+ 
+   ply_trace ("loading background tile %s", image_path);
+   free (image_path);
+ 
++  asprintf (&image_path, "%s/watermark.png", image_dir);
++  plugin->watermark_image = ply_image_new (image_path);
++  free (image_path);
++
+   plugin->animation_dir = image_dir;
+ 
+   alignment = ply_key_file_get_value (key_file, "two-step", "HorizontalAlignment");
+   if (alignment != NULL)
+     plugin->animation_horizontal_alignment = strtod (alignment, NULL);
+   else
+     plugin->animation_horizontal_alignment = .5;
+   free (alignment);
+ 
+   alignment = ply_key_file_get_value (key_file, "two-step", "VerticalAlignment");
+   if (alignment != NULL)
+     plugin->animation_vertical_alignment = strtod (alignment, NULL);
+   else
+     plugin->animation_vertical_alignment = .5;
+   free (alignment);
+ 
++  alignment = ply_key_file_get_value (key_file, "two-step", "WatermarkHorizontalAlignment");
++  if (alignment != NULL)
++    plugin->watermark_horizontal_alignment = strtod (alignment, NULL);
++  else
++    plugin->watermark_horizontal_alignment = 1.0;
++  free (alignment);
++
++  alignment = ply_key_file_get_value (key_file, "two-step", "WatermarkVerticalAlignment");
++  if (alignment != NULL)
++    plugin->watermark_vertical_alignment = strtod (alignment, NULL);
++  else
++    plugin->watermark_vertical_alignment = .5;
++  free (alignment);
++
+   plugin->transition = PLY_PROGRESS_ANIMATION_TRANSITION_NONE;
+   transition = ply_key_file_get_value (key_file, "two-step", "Transition");
+   if (transition != NULL)
+     {
+       if (strcmp (transition, "fade-over") == 0)
+         plugin->transition = PLY_PROGRESS_ANIMATION_TRANSITION_FADE_OVER;
+       else if (strcmp (transition, "cross-fade") == 0)
+         plugin->transition = PLY_PROGRESS_ANIMATION_TRANSITION_CROSS_FADE;
+       else if (strcmp (transition, "merge-fade") == 0)
+         plugin->transition = PLY_PROGRESS_ANIMATION_TRANSITION_MERGE_FADE;
+     }
+   free (transition);
+ 
+   transition_duration = ply_key_file_get_value (key_file, "two-step", "TransitionDuration");
+   if (transition_duration != NULL)
+     plugin->transition_duration = strtod (transition_duration, NULL);
+   else
+     plugin->transition_duration = 0.0;
+   free (transition_duration);
+ 
+   color = ply_key_file_get_value (key_file, "two-step", "BackgroundStartColor");
+ 
+   if (color != NULL)
+     plugin->background_start_color = strtol (color, NULL, 0);
+   else
+     plugin->background_start_color = PLYMOUTH_BACKGROUND_START_COLOR;
+ 
+   free (color);
+ 
+   color = ply_key_file_get_value (key_file, "two-step", "BackgroundEndColor");
+@@ -654,60 +684,63 @@ free_views (ply_boot_splash_plugin_t *plugin)
+ static void
+ destroy_plugin (ply_boot_splash_plugin_t *plugin)
+ {
+   if (plugin == NULL)
+     return;
+ 
+   ply_trace ("destroying plugin");
+ 
+   if (plugin->loop != NULL)
+     {
+       stop_animation (plugin, NULL);
+ 
+       ply_event_loop_stop_watching_for_exit (plugin->loop, (ply_event_loop_exit_handler_t)
+                                              detach_from_event_loop,
+                                              plugin);
+       detach_from_event_loop (plugin);
+     }
+ 
+   ply_image_free (plugin->box_image);
+   ply_image_free (plugin->lock_image);
+ 
+   if (plugin->corner_image != NULL)
+     ply_image_free (plugin->corner_image);
+ 
+   if (plugin->header_image != NULL)
+     ply_image_free (plugin->header_image);
+ 
+   if (plugin->background_tile_image != NULL)
+     ply_image_free (plugin->background_tile_image);
+ 
++  if (plugin->watermark_image != NULL)
++    ply_image_free (plugin->watermark_image);
++
+   free (plugin->animation_dir);
+   free_views (plugin);
+   free (plugin);
+ }
+ 
+ static void
+ start_end_animation (ply_boot_splash_plugin_t *plugin,
+                      ply_trigger_t            *trigger)
+ {
+   ply_trace ("starting end animation");
+ 
+   ply_list_node_t *node;
+ 
+   node = ply_list_get_first_node (plugin->views);
+   while (node != NULL)
+     {
+       ply_list_node_t *next_node;
+       view_t *view;
+       ply_trigger_t *throbber_trigger;
+ 
+       view = ply_list_node_get_data (node);
+       next_node = ply_list_get_next_node (plugin->views, node);
+ 
+       ply_trigger_ignore_next_pull (trigger);
+ 
+       if (view->throbber != NULL)
+         {
+           ply_trace ("stopping throbber");
+           view->end_trigger = trigger;
+           throbber_trigger = ply_trigger_new (NULL);
+@@ -821,60 +854,68 @@ draw_background (view_t             *view,
+                  ply_pixel_buffer_t *pixel_buffer,
+                  int                 x,
+                  int                 y,
+                  int                 width,
+                  int                 height)
+ {
+   ply_boot_splash_plugin_t *plugin;
+   ply_rectangle_t area;
+ 
+   plugin = view->plugin;
+ 
+   area.x = x;
+   area.y = y;
+   area.width = width;
+   area.height = height;
+ 
+   if (plugin->background_start_color != plugin->background_end_color)
+     ply_pixel_buffer_fill_with_gradient (pixel_buffer, &area,
+                                          plugin->background_start_color,
+                                          plugin->background_end_color);
+   else
+     ply_pixel_buffer_fill_with_hex_color (pixel_buffer, &area,
+                                           plugin->background_start_color);
+ 
+   if (view->background_image != NULL)
+     {
+       uint32_t *data;
+       data = ply_image_get_data (view->background_image);
+       ply_pixel_buffer_fill_with_argb32_data (pixel_buffer, &area, data);
+     }
++
++  if (plugin->watermark_image != NULL)
++    {
++      uint32_t *data;
++
++      data = ply_image_get_data (plugin->watermark_image);
++      ply_pixel_buffer_fill_with_argb32_data (pixel_buffer, &view->watermark_area, data);
++    }
+ }
+ 
+ static void
+ on_draw (view_t                   *view,
+          ply_pixel_buffer_t       *pixel_buffer,
+          int                       x,
+          int                       y,
+          int                       width,
+          int                       height)
+ {
+   ply_boot_splash_plugin_t *plugin;
+   ply_rectangle_t screen_area;
+   ply_rectangle_t image_area;
+ 
+   plugin = view->plugin;
+ 
+   draw_background (view, pixel_buffer, x, y, width, height);
+ 
+   ply_pixel_buffer_get_size (pixel_buffer, &screen_area);
+ 
+   if (plugin->state == PLY_BOOT_SPLASH_DISPLAY_QUESTION_ENTRY ||
+       plugin->state == PLY_BOOT_SPLASH_DISPLAY_PASSWORD_ENTRY  )
+     {
+       uint32_t *box_data, *lock_data;
+ 
+       box_data = ply_image_get_data (plugin->box_image);
+       ply_pixel_buffer_fill_with_argb32_data (pixel_buffer,
+                                               &view->box_area,
+                                               box_data);
+ 
+@@ -1015,60 +1056,70 @@ show_splash_screen (ply_boot_splash_plugin_t *plugin,
+       ply_trace ("loading corner image");
+ 
+       if (!ply_image_load (plugin->corner_image))
+         {
+           ply_image_free (plugin->corner_image);
+           plugin->corner_image = NULL;
+         }
+     }
+ 
+   if (plugin->header_image != NULL)
+     {
+       ply_trace ("loading header image");
+ 
+       if (!ply_image_load (plugin->header_image))
+         {
+           ply_image_free (plugin->header_image);
+           plugin->header_image = NULL;
+         }
+     }
+ 
+   if (plugin->background_tile_image != NULL)
+     {
+       ply_trace ("loading background tile image");
+       if (!ply_image_load (plugin->background_tile_image))
+         {
+           ply_image_free (plugin->background_tile_image);
+           plugin->background_tile_image = NULL;
+         }
+     }
+ 
++  if (plugin->watermark_image != NULL)
++    {
++      ply_trace ("loading watermark image");
++      if (!ply_image_load (plugin->watermark_image))
++        {
++          ply_image_free (plugin->watermark_image);
++          plugin->watermark_image = NULL;
++        }
++    }
++
+   if (!load_views (plugin))
+     {
+       ply_trace ("couldn't load views");
+       return false;
+     }
+ 
+   ply_event_loop_watch_for_exit (loop, (ply_event_loop_exit_handler_t)
+                                  detach_from_event_loop,
+                                  plugin);
+ 
+   ply_trace ("starting boot animations");
+   start_progress_animation (plugin);
+ 
+   plugin->is_visible = true;
+ 
+   return true;
+ }
+ 
+ static void
+ update_status (ply_boot_splash_plugin_t *plugin,
+                const char               *status)
+ {
+   assert (plugin != NULL);
+ }
+ 
+ static void
+ on_animation_stopped (ply_boot_splash_plugin_t *plugin)
+ {
+   if (plugin->idle_trigger != NULL)
+     {
+-- 
+1.8.3.1
+
+
+From 2ce951c56b4ffa26803072789a6f8d16e4cdca3a Mon Sep 17 00:00:00 2001
+From: Ray Strode <rstrode@redhat.com>
+Date: Fri, 25 Oct 2013 16:24:47 -0400
+Subject: [PATCH 5/5] two-step: introduce delayed startup
+
+Many machines these days can boot in 5 seconds or less.
+In those cases, there's little point in showing a boot splash.
+
+This commit introduces a StartupDelay option to the two step
+plugin to prevent it from displaying anything for a few seconds.
+---
+ src/plugins/splash/two-step/plugin.c | 45 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 45 insertions(+)
+
+diff --git a/src/plugins/splash/two-step/plugin.c b/src/plugins/splash/two-step/plugin.c
+index 5cf333f..fff928c 100644
+--- a/src/plugins/splash/two-step/plugin.c
++++ b/src/plugins/splash/two-step/plugin.c
+@@ -65,135 +65,141 @@
+ #endif
+ 
+ #ifndef SHOW_ANIMATION_PERCENT
+ #define SHOW_ANIMATION_PERCENT 0.9
+ #endif
+ 
+ typedef enum {
+    PLY_BOOT_SPLASH_DISPLAY_NORMAL,
+    PLY_BOOT_SPLASH_DISPLAY_QUESTION_ENTRY,
+    PLY_BOOT_SPLASH_DISPLAY_PASSWORD_ENTRY
+ } ply_boot_splash_display_type_t;
+ 
+ typedef enum {
+    PROGRESS_FUNCTION_TYPE_WWOODS,
+    PROGRESS_FUNCTION_TYPE_LINEAR,
+ } progress_function_t;
+ 
+ typedef struct
+ {
+   ply_boot_splash_plugin_t *plugin;
+   ply_pixel_display_t *display;
+   ply_entry_t *entry;
+   ply_animation_t *end_animation;
+   ply_progress_animation_t *progress_animation;
+   ply_throbber_t *throbber;
+   ply_label_t *label;
+   ply_label_t *message_label;
+   ply_rectangle_t box_area, lock_area, watermark_area;
+   ply_trigger_t *end_trigger;
+   ply_image_t *background_image;
++
++  uint32_t is_blank : 1;
+ } view_t;
+ 
+ struct _ply_boot_splash_plugin
+ {
+   ply_event_loop_t *loop;
+   ply_boot_splash_mode_t mode;
+   ply_image_t *lock_image;
+   ply_image_t *box_image;
+   ply_image_t *corner_image;
+   ply_image_t *header_image;
+   ply_image_t *background_tile_image;
+   ply_image_t *watermark_image;
+   ply_list_t *views;
+ 
+   ply_boot_splash_display_type_t state;
+ 
+   double watermark_horizontal_alignment;
+   double watermark_vertical_alignment;
+ 
+   double animation_horizontal_alignment;
+   double animation_vertical_alignment;
+   char *animation_dir;
+ 
+   ply_progress_animation_transition_t transition;
+   double transition_duration;
+ 
+   uint32_t background_start_color;
+   uint32_t background_end_color;
+ 
+   progress_function_t progress_function;
+ 
+   ply_trigger_t *idle_trigger;
+   ply_trigger_t *stop_trigger;
+ 
++  double start_time;
++  double startup_delay;
++
+   uint32_t root_is_mounted : 1;
+   uint32_t is_visible : 1;
+   uint32_t is_animating : 1;
+   uint32_t is_idle : 1;
+ };
+ 
+ ply_boot_splash_plugin_interface_t * ply_boot_splash_plugin_get_interface (void);
+ 
+ static void stop_animation (ply_boot_splash_plugin_t *plugin,
+                             ply_trigger_t            *idle_trigger);
+ 
+ static void detach_from_event_loop (ply_boot_splash_plugin_t *plugin);
+ static void display_message (ply_boot_splash_plugin_t *plugin,
+                              const char               *message);
+ static void become_idle (ply_boot_splash_plugin_t *plugin,
+                          ply_trigger_t            *idle_trigger);
+ 
+ static view_t *
+ view_new (ply_boot_splash_plugin_t *plugin,
+           ply_pixel_display_t      *display)
+ {
+   view_t *view;
+ 
+   view = calloc (1, sizeof (view_t));
+   view->plugin = plugin;
+   view->display = display;
+ 
+   view->entry = ply_entry_new (plugin->animation_dir);
+   view->end_animation = ply_animation_new (plugin->animation_dir,
+                                            "animation-");
+   view->progress_animation = ply_progress_animation_new (plugin->animation_dir,
+                                                          "progress-");
+ 
+   view->throbber = ply_throbber_new (plugin->animation_dir,
+                                      "throbber-");
+   ply_progress_animation_set_transition (view->progress_animation,
+                                          plugin->transition,
+                                          plugin->transition_duration);
+ 
+   view->label = ply_label_new ();
+   view->message_label = ply_label_new ();
++  view->is_blank = true;
+ 
+   return view;
+ }
+ 
+ static void
+ view_free (view_t *view)
+ {
+ 
+   ply_entry_free (view->entry);
+   ply_animation_free (view->end_animation);
+   ply_progress_animation_free (view->progress_animation);
+   ply_throbber_free (view->throbber);
+   ply_label_free (view->label);
+   ply_label_free (view->message_label);
+ 
+   if (view->background_image != NULL)
+     ply_image_free (view->background_image);
+ 
+   free (view);
+ }
+ 
+ static bool
+ view_load (view_t *view)
+ {
+   unsigned long screen_width, screen_height;
+   ply_boot_splash_plugin_t *plugin;
+ 
+   plugin = view->plugin;
+ 
+   screen_width = ply_pixel_display_get_width (view->display);
+@@ -494,101 +500,111 @@ view_show_prompt (view_t     *view,
+   if (prompt != NULL)
+     {
+       ply_label_set_text (view->label, prompt);
+ 
+       /* We center the prompt in the middle and use 80% of the horizontal space */
+       int label_width = screen_width * 100 / 80;
+       ply_label_set_alignment (view->label, PLY_LABEL_ALIGN_CENTER);
+       ply_label_set_width (view->label, label_width);
+ 
+       x = (screen_width - label_width) / 2;
+       y = view->box_area.y + view->box_area.height;
+ 
+       ply_label_show (view->label, view->display, x, y);
+     }
+ }
+ 
+ static void
+ view_hide_prompt (view_t *view)
+ {
+   assert (view != NULL);
+ 
+   ply_entry_hide (view->entry);
+   ply_label_hide (view->label);
+ }
+ 
+ static ply_boot_splash_plugin_t *
+ create_plugin (ply_key_file_t *key_file)
+ {
+   ply_boot_splash_plugin_t *plugin;
+   char *image_dir, *image_path;
++  char *startup_delay;
+   char *alignment;
+   char *transition;
+   char *transition_duration;
+   char *color;
+   char *progress_function;
+ 
+   srand ((int) ply_get_timestamp ());
+   plugin = calloc (1, sizeof (ply_boot_splash_plugin_t));
+ 
++  plugin->start_time = ply_get_timestamp ();
++
+   image_dir = ply_key_file_get_value (key_file, "two-step", "ImageDir");
+ 
+   ply_trace ("Using '%s' as working directory", image_dir);
+ 
+   asprintf (&image_path, "%s/lock.png", image_dir);
+   plugin->lock_image = ply_image_new (image_path);
+   free (image_path);
+ 
+   asprintf (&image_path, "%s/box.png", image_dir);
+   plugin->box_image = ply_image_new (image_path);
+   free (image_path);
+ 
+   asprintf (&image_path, "%s/corner-image.png", image_dir);
+   plugin->corner_image = ply_image_new (image_path);
+   free (image_path);
+ 
+   asprintf (&image_path, "%s/header-image.png", image_dir);
+   plugin->header_image = ply_image_new (image_path);
+   free (image_path);
+ 
+   asprintf (&image_path, "%s/background-tile.png", image_dir);
+   plugin->background_tile_image = ply_image_new (image_path);
+ 
+   ply_trace ("loading background tile %s", image_path);
+   free (image_path);
+ 
+   asprintf (&image_path, "%s/watermark.png", image_dir);
+   plugin->watermark_image = ply_image_new (image_path);
+   free (image_path);
+ 
+   plugin->animation_dir = image_dir;
+ 
++  startup_delay = ply_key_file_get_value (key_file, "two-step", "StartupDelay");
++  if (startup_delay != NULL)
++    plugin->startup_delay = strtod (startup_delay, NULL);
++  else
++    plugin->startup_delay = 5.0;
++  free (startup_delay);
++
+   alignment = ply_key_file_get_value (key_file, "two-step", "HorizontalAlignment");
+   if (alignment != NULL)
+     plugin->animation_horizontal_alignment = strtod (alignment, NULL);
+   else
+     plugin->animation_horizontal_alignment = .5;
+   free (alignment);
+ 
+   alignment = ply_key_file_get_value (key_file, "two-step", "VerticalAlignment");
+   if (alignment != NULL)
+     plugin->animation_vertical_alignment = strtod (alignment, NULL);
+   else
+     plugin->animation_vertical_alignment = .5;
+   free (alignment);
+ 
+   alignment = ply_key_file_get_value (key_file, "two-step", "WatermarkHorizontalAlignment");
+   if (alignment != NULL)
+     plugin->watermark_horizontal_alignment = strtod (alignment, NULL);
+   else
+     plugin->watermark_horizontal_alignment = 1.0;
+   free (alignment);
+ 
+   alignment = ply_key_file_get_value (key_file, "two-step", "WatermarkVerticalAlignment");
+   if (alignment != NULL)
+     plugin->watermark_vertical_alignment = strtod (alignment, NULL);
+   else
+     plugin->watermark_vertical_alignment = .5;
+   free (alignment);
+ 
+   plugin->transition = PLY_PROGRESS_ANIMATION_TRANSITION_NONE;
+   transition = ply_key_file_get_value (key_file, "two-step", "Transition");
+@@ -878,60 +894,89 @@ draw_background (view_t             *view,
+   if (view->background_image != NULL)
+     {
+       uint32_t *data;
+       data = ply_image_get_data (view->background_image);
+       ply_pixel_buffer_fill_with_argb32_data (pixel_buffer, &area, data);
+     }
+ 
+   if (plugin->watermark_image != NULL)
+     {
+       uint32_t *data;
+ 
+       data = ply_image_get_data (plugin->watermark_image);
+       ply_pixel_buffer_fill_with_argb32_data (pixel_buffer, &view->watermark_area, data);
+     }
+ }
+ 
+ static void
+ on_draw (view_t                   *view,
+          ply_pixel_buffer_t       *pixel_buffer,
+          int                       x,
+          int                       y,
+          int                       width,
+          int                       height)
+ {
+   ply_boot_splash_plugin_t *plugin;
+   ply_rectangle_t screen_area;
+   ply_rectangle_t image_area;
+ 
+   plugin = view->plugin;
+ 
++  if (plugin->mode == PLY_BOOT_SPLASH_MODE_BOOT_UP)
++    {
++      double now;
++
++      now = ply_get_timestamp ();
++
++      if (now - plugin->start_time < plugin->startup_delay)
++        return;
++
++      if (view->is_blank)
++        {
++          ply_rectangle_t clip_area;
++
++          x = 0;
++          y = 0;
++          width = ply_pixel_display_get_width (view->display);
++          height = ply_pixel_display_get_height (view->display);
++
++          clip_area.x = 0;
++          clip_area.y = 0;
++          clip_area.width = width;
++          clip_area.height = height;
++          ply_pixel_buffer_pop_clip_area (pixel_buffer);
++          ply_pixel_buffer_push_clip_area (pixel_buffer,
++                                           &clip_area);
++          view->is_blank = false;
++        }
++    }
++
+   draw_background (view, pixel_buffer, x, y, width, height);
+ 
+   ply_pixel_buffer_get_size (pixel_buffer, &screen_area);
+ 
+   if (plugin->state == PLY_BOOT_SPLASH_DISPLAY_QUESTION_ENTRY ||
+       plugin->state == PLY_BOOT_SPLASH_DISPLAY_PASSWORD_ENTRY  )
+     {
+       uint32_t *box_data, *lock_data;
+ 
+       box_data = ply_image_get_data (plugin->box_image);
+       ply_pixel_buffer_fill_with_argb32_data (pixel_buffer,
+                                               &view->box_area,
+                                               box_data);
+ 
+       ply_entry_draw_area (view->entry,
+                            pixel_buffer,
+                            x, y, width, height);
+       ply_label_draw_area (view->label,
+                            pixel_buffer,
+                            x, y, width, height);
+ 
+       lock_data = ply_image_get_data (plugin->lock_image);
+       ply_pixel_buffer_fill_with_argb32_data (pixel_buffer,
+                                               &view->lock_area,
+                                               lock_data);
+     }
+   else
+     {
+       if (view->throbber != NULL &&
+           !ply_throbber_is_stopped (view->throbber))
+-- 
+1.8.3.1
+
+From ba50f9e79da79d42ed7f50798b955ef929819daf Mon Sep 17 00:00:00 2001
+From: Ray Strode <rstrode@redhat.com>
+Date: Fri, 8 Nov 2013 08:31:32 -0500
+Subject: [PATCH] two-step: fix unlock screen
+
+The previous commit introduced a bug where the unlock screen won't
+get shown if it's requested within the first 5 seconds of startup.
+
+This commit fixes that by forcing a redraw if the state switches from
+NORMAL.
+---
+ src/plugins/splash/two-step/plugin.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/plugins/splash/two-step/plugin.c b/src/plugins/splash/two-step/plugin.c
+index fff928c..eaf20b3 100644
+--- a/src/plugins/splash/two-step/plugin.c
++++ b/src/plugins/splash/two-step/plugin.c
+@@ -900,61 +900,62 @@ draw_background (view_t             *view,
+ 
+   if (plugin->watermark_image != NULL)
+     {
+       uint32_t *data;
+ 
+       data = ply_image_get_data (plugin->watermark_image);
+       ply_pixel_buffer_fill_with_argb32_data (pixel_buffer, &view->watermark_area, data);
+     }
+ }
+ 
+ static void
+ on_draw (view_t                   *view,
+          ply_pixel_buffer_t       *pixel_buffer,
+          int                       x,
+          int                       y,
+          int                       width,
+          int                       height)
+ {
+   ply_boot_splash_plugin_t *plugin;
+   ply_rectangle_t screen_area;
+   ply_rectangle_t image_area;
+ 
+   plugin = view->plugin;
+ 
+   if (plugin->mode == PLY_BOOT_SPLASH_MODE_BOOT_UP)
+     {
+       double now;
+ 
+       now = ply_get_timestamp ();
+ 
+-      if (now - plugin->start_time < plugin->startup_delay)
++      if ((now - plugin->start_time < plugin->startup_delay) &&
++          plugin->state == PLY_BOOT_SPLASH_DISPLAY_NORMAL)
+         return;
+ 
+       if (view->is_blank)
+         {
+           ply_rectangle_t clip_area;
+ 
+           x = 0;
+           y = 0;
+           width = ply_pixel_display_get_width (view->display);
+           height = ply_pixel_display_get_height (view->display);
+ 
+           clip_area.x = 0;
+           clip_area.y = 0;
+           clip_area.width = width;
+           clip_area.height = height;
+           ply_pixel_buffer_pop_clip_area (pixel_buffer);
+           ply_pixel_buffer_push_clip_area (pixel_buffer,
+                                            &clip_area);
+           view->is_blank = false;
+         }
+     }
+ 
+   draw_background (view, pixel_buffer, x, y, width, height);
+ 
+   ply_pixel_buffer_get_size (pixel_buffer, &screen_area);
+ 
+   if (plugin->state == PLY_BOOT_SPLASH_DISPLAY_QUESTION_ENTRY ||
+       plugin->state == PLY_BOOT_SPLASH_DISPLAY_PASSWORD_ENTRY  )
+     {
+       uint32_t *box_data, *lock_data;
+-- 
+1.8.3.1
+

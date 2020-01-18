@@ -1,0 +1,918 @@
+From 740aa102eec65abf8dcfeeac043ecbcde74f2bf8 Mon Sep 17 00:00:00 2001
+From: Matthias Clasen <mclasen@redhat.com>
+Date: Mon, 21 Oct 2013 17:53:33 -0400
+Subject: [PATCH] docs: add docbook based man pages
+
+This commit adds man pages for the plymouthd and plymouth client
+commands.
+---
+ Makefile.am                         |   6 +-
+ configure.ac                        |  12 ++
+ docs/Makefile.am                    |  33 +++-
+ docs/plymouth-set-default-theme.xml | 103 +++++++++++
+ docs/plymouth.8                     |  62 -------
+ docs/plymouth.xml                   |  86 +++++++++
+ docs/plymouth1.xml                  | 351 ++++++++++++++++++++++++++++++++++++
+ docs/plymouthd.xml                  | 121 +++++++++++++
+ 8 files changed, 708 insertions(+), 66 deletions(-)
+ create mode 100644 docs/plymouth-set-default-theme.xml
+ delete mode 100644 docs/plymouth.8
+ create mode 100644 docs/plymouth.xml
+ create mode 100644 docs/plymouth1.xml
+ create mode 100644 docs/plymouthd.xml
+
+diff --git a/Makefile.am b/Makefile.am
+index b322463..395c91b 100644
+--- a/Makefile.am
++++ b/Makefile.am
+@@ -1,13 +1,17 @@
+-SUBDIRS = src themes images scripts docs systemd-units
++SUBDIRS = src themes images scripts systemd-units
++
++if BUILD_DOCUMENTATION
++SUBDIRS += docs
++endif
+ 
+ DISTCHECK_CONFIGURE_FLAGS = --disable-tests --without-system-root-install
+ 
+ EXTRA_DIST = ChangeLog                                                         \
+              README
+ 
+ MAINTAINERCLEANFILES = aclocal.m4                                              \
+                        config.h.in                                             \
+                        config.h.in~                                            \
+                        config.sub                                              \
+                        configure                                               \
+                        Makefile.in
+diff --git a/configure.ac b/configure.ac
+index bb0207d..6b957d9 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -198,60 +198,72 @@ if test x$enable_libdrm_nouveau = xyes; then
+ fi
+ 
+ AC_ARG_ENABLE(libkms, AS_HELP_STRING([--enable-libkms],[enable building with libkms support]),enable_libkms=$enableval,enable_libkms=no)
+ AM_CONDITIONAL(ENABLE_LIBKMS,  [test "$enable_libkms" = yes])
+ 
+ if test x$enable_libkms = xyes; then
+   PKG_CHECK_MODULES(LIBKMS, [libdrm libkms])
+   AC_SUBST(LIBKMS_CFLAGS)
+   AC_SUBST(LIBKMS_LIBS)
+   AC_DEFINE(PLY_ENABLE_LIBKMS, 1, [Enable support for libkms abstraction over drm drivers])
+ fi
+ 
+ AC_ARG_ENABLE(drm, AS_HELP_STRING([--enable-drm-renderer],[enable building drm kms support]),enable_drm_renderer=$enableval,enable_drm_renderer=yes)
+ AM_CONDITIONAL(ENABLE_DRM_RENDERER,  [test "$enable_drm_renderer" = yes])
+ 
+ if test x$enable_drm_renderer = xyes; then
+   PKG_CHECK_MODULES(DRM, [libdrm])
+ fi
+ 
+ DRM_CFLAGS="$DRM_CFLAGS $DRM_INTEL_CFLAGS $DRM_RADEON_CFLAGS $DRM_NOUVEAU_CFLAGS $LIBKMS_CFLAG"
+ DRM_LIBS="$DRM_LIBS $DRM_INTEL_LIBS $DRM_RADEON_LIBS $DRM_NOUVEAU_LIBS $LIBKMS_LIBS"
+ AC_SUBST(DRM_CFLAGS)
+ AC_SUBST(DRM_LIBS)
+ 
+ AC_ARG_ENABLE(tracing, AS_HELP_STRING([--enable-tracing],[enable verbose tracing code]),enable_tracing=$enableval,enable_tracing=yes)
+ 
+ if test x$enable_tracing = xyes; then
+   AC_DEFINE(PLY_ENABLE_TRACING, 1, [Build in verbose debug tracing spew])
+ fi
+ 
++AC_ARG_ENABLE(documentation,
++              AS_HELP_STRING([--enable-documentation],
++                             [build documentation]),,
++              enable_documentation=yes)
++if test x$enable_documentation = xyes; then
++   AC_PATH_PROG([XSLTPROC], [xsltproc])
++   if test x$XSLTPROC = x; then
++      AC_MSG_ERROR([xsltproc is required to build documentation])
++   fi
++fi
++AM_CONDITIONAL(BUILD_DOCUMENTATION, test x$enable_documentation = xyes)
++
+ AC_ARG_ENABLE(tests, AS_HELP_STRING([--enable-tests],[build tests]),enable_tests=$enableval,enable_tests=yes)
+ 
+ AM_CONDITIONAL(ENABLE_TESTS,  [test "$enable_tests" = yes])
+ 
+ AC_ARG_ENABLE(gdm-transition, AS_HELP_STRING([--enable-gdm-transition],[enable smooth transition to gdm]),enable_gdm_transition=$enableval,enable_gdm_transition=no)
+ 
+ if test x$enable_gdm_transition = xyes; then
+   AC_DEFINE(PLY_ENABLE_DEPRECATED_GDM_TRANSITION, 1, [Enable deprecated smooth transition to GDM])
+ fi
+ 
+ AC_ARG_ENABLE(upstart-monitoring, AS_HELP_STRING([--enable-upstart-monitoring],[listen for messages on the Upstart D-Bus interface]),enable_upstart_monitoring=$enableval,enable_upstart_monitoring=no)
+ if test x$enable_upstart_monitoring = xyes; then
+   PKG_CHECK_MODULES(DBUS, [dbus-1])
+   AC_SUBST(DBUS_CFLAGS)
+   AC_SUBST(DBUS_LIBS)
+   AC_CHECK_HEADERS([ncursesw/term.h ncurses/term.h term.h], [break])
+   AC_CHECK_LIB([ncursesw], [initscr],
+     [CURSES_LIBS="$CURSES_LIBS -lncursesw"],
+     [AC_CHECK_LIB([ncurses], [initscr],
+       [CURSES_LIBS="$CURSES_LIBS -lncurses"],
+       [AC_CHECK_LIB([curses], [initscr],
+         [CURSES_LIBS="$CURSES_LIBS -lcurses"],
+         [AC_MSG_ERROR([no curses library found])])])])
+   AC_SUBST(CURSES_LIBS)
+ fi
+ AM_CONDITIONAL(ENABLE_UPSTART_MONITORING, [test "$enable_upstart_monitoring" = yes])
+ 
+ AC_ARG_ENABLE(systemd-integration, AS_HELP_STRING([--enable-systemd-integration],[coordinate boot up with systemd]),enable_systemd_integration=$enableval,enable_systemd_integration=no)
+ AM_CONDITIONAL(ENABLE_SYSTEMD_INTEGRATION, [test "$enable_systemd_integration" = yes])
+ 
+diff --git a/docs/Makefile.am b/docs/Makefile.am
+index dedda55..1a9f7ea 100644
+--- a/docs/Makefile.am
++++ b/docs/Makefile.am
+@@ -1,4 +1,31 @@
+-dist_man_MANS = plymouth.8
++XSLTPROC_FLAGS = \
++        --nonet \
++        --stringparam man.output.quietly 1 \
++        --stringparam funcsynopsis.style ansi \
++        --stringparam man.th.extra1.suppress 1 \
++        --stringparam man.authors.section.enabled 0 \
++        --stringparam man.copyright.section.enabled 0
+ 
+-%.html: %.txt
+-	asciidoc $(ASCIIDOC_OPTS) -a toc $*.txt
++
++plymouth.1: plymouth1.xml
++	$(AM_V_GEN) $(XSLTPROC) $(XSLTPROC_FLAGS) http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl $<
++
++%.8: %.xml
++	$(AM_V_GEN) $(XSLTPROC) $(XSLTPROC_FLAGS) http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl $<
++	
++%.1: %.xml
++	$(AM_V_GEN) $(XSLTPROC) $(XSLTPROC_FLAGS) http://docbook.sourceforge.net/release/xsl/current/manpages/docbook.xsl $<
++	
++man_MANS = \
++	plymouth.1 \
++	plymouth.8 \
++	plymouthd.8 \
++	plymouth-set-default-theme.1
++
++EXTRA_DIST = \
++	plymouth.xml \
++	plymouth1.xml \
++	plymouth-set-default-theme.xml \
++	plymouthd.xml
++
++CLEANFILES = $(man_MANS)
+diff --git a/docs/plymouth-set-default-theme.xml b/docs/plymouth-set-default-theme.xml
+new file mode 100644
+index 0000000..efb051e
+--- /dev/null
++++ b/docs/plymouth-set-default-theme.xml
+@@ -0,0 +1,103 @@
++<?xml version='1.0'?>
++<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN"
++        "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
++
++<refentry id="plymouth-set-default-theme">
++
++        <refentryinfo>
++                <title>plymouth-set-default-theme</title>
++                <productname>plymouth</productname>
++
++                <authorgroup>
++                        <author>
++                                <contrib>Developer</contrib>
++                                <firstname>Kristian</firstname>
++                                <surname>Høgsberg</surname>
++                        </author>
++                        <author>
++                                <contrib>Developer</contrib>
++                                <firstname>Ray</firstname>
++                                <surname>Strode</surname>
++                        </author>
++                </authorgroup>
++
++        </refentryinfo>
++
++        <refmeta>
++                <refentrytitle>plymouth-set-default-theme</refentrytitle>
++                <manvolnum>1</manvolnum>
++                <refmiscinfo class="manual">User Commands</refmiscinfo>
++        </refmeta>
++
++        <refnamediv>
++                <refname>plymouth-set-default-theme</refname>
++                <refpurpose>Set the plymouth theme</refpurpose>
++        </refnamediv>
++
++        <refsynopsisdiv>
++                <cmdsynopsis>
++                        <command>plymouth-set-default-theme <arg choice="opt" rep="repeat">OPTION</arg> <arg choice="opt" rep="norepeat">THEME</arg></command>
++                </cmdsynopsis>
++        </refsynopsisdiv>
++
++        <refsect1>
++                <title>Description</title>
++
++<para>
++When called with a <option>THEME</option> argument,
++the <command>plymouth-set-default-theme</command> command
++changes the preferred boot theme and also performs the necessary
++regeneration of the initial ramdisk (initrd) since plymouth is loaded
++from the boot loader from the initrd prior to the mounting of the root
++filesystem.
++</para>
++
++<para>
++If <command>plymouth-set-default-theme</command> is invoked with no options
++or parameters, it shows the currently selected theme by default. This output
++is used by the helper scripts plymouth-generate-initrd and
++plymouth-update-initrd to set the proper theme in the initial ramdisk.
++</para>
++
++        </refsect1>
++
++        <refsect1>
++                <title>Options</title>
++
++                <para>The following options are understood:</para>
++
++                <variablelist>
++                        <varlistentry>
++                                <term><option>-h</option>, <option>--help</option></term>
++                                <listitem><para>Show summary of options.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>-l</option>, <option>--list</option></term>
++                                <listitem><para>List available themes.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>-r</option>, <option>--reset</option></term>
++                                <listitem><para>Reset to default theme.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>-R</option>, <option>--rebuild-initrd</option></term>
++                                <listitem><para>Rebuild initrd (necessary after changing theme).</para></listitem>
++                        </varlistentry>
++                </variablelist>
++        </refsect1>
++
++        <refsect1>
++                <title>See Also</title>
++                <para>
++                        <citerefentry><refentrytitle>grub</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
++                        <citerefentry><refentrytitle>plymouth</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
++                        <citerefentry><refentrytitle>plymouthd</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
++                        <citerefentry><refentrytitle>plymouth</refentrytitle><manvolnum>1</manvolnum></citerefentry>,
++                        <ulink url="http://www.freedesktop.org/wiki/Software/Plymouth">http://www.freedesktop.org/wiki/Software/Plymouth</ulink>
++                </para>
++        </refsect1>
++
++</refentry>
+diff --git a/docs/plymouth.8 b/docs/plymouth.8
+deleted file mode 100644
+index 7f4766b..0000000
+--- a/docs/plymouth.8
++++ /dev/null
+@@ -1,62 +0,0 @@
+-\"                                      Hey, EMACS: -*- nroff -*-
+-.TH PLYMOUTH 8 "December 15, 2009"
+-.SH NAME
+-plymouth \- A graphical boot system and logger
+-.SH SYNOPSIS
+-.B plymouth-set-default-theme
+-.RI [ options ] " \<theme\>"
+-.SH DESCRIPTION
+-\fBplymouth\fP is a graphical boot system for Linux which takes advantage of the kernel-based
+-mode setting (KMS) available for modern graphic cards to provide a seamless, flickerfree
+-and attractive boot screen. It allows to choose between various, static or
+-animated graphical themes to spruce up the startup and avoid the noise
+-generated by the vast amount of kernel messages while the machine boots into X.
+-On systems where kernel-based mode setting is not available, plymouth falls
+-back to a text mode boot screen which provides a simple progress bar to provide
+-feedback during boot.
+-.PP
+-To configure plymouth, that is to choose and install the preferred boot theme, the
+-user has to invoke \fBplymouth-set-default-theme\fP. It changes the configuration
+-to the new theme and also performs the necessary regeneration of the initial ramdisk
+-(initrd) since plymouth is loaded from the boot loader from the initrd
+-prior to the mounting of the root filesystem. The options available to this
+-script are explained in the \fBOPTIONS\fP paragraph.
+-.PP
+-In order for the configured default plymouth theme to be loaded during boot,
+-the option `splash' (or `rhgb' for backward compatibility with the RHGB boot
+-splash) must be provided at the kernel command line.  With this command line
+-option, plymouth will default to showing detailed boot output.
+-.SH OPTIONS
+-plymouth-set-default-theme follows the usual GNU command line syntax, with long
+-options starting with two dashes (`-') and short variants of each of them.
+-.TP
+-.B \-h, \-\-help
+-Show summary of options.
+-.TP
+-.B \-l, \-\-list
+-List available themes.
+-.TP
+-.B \-r, \-\-reset
+-Reset to default theme.
+-.TP
+-.B \-R, \-\-rebuild\-initrd
+-Rebuild initrd (necessary after changing theme).
+-.TP
+-.B \<theme-name\>
+-Name of new theme to use. If you want to see which themes are available, invoke the script with just \-\-list.
+-.PP
+-If plymouth-set-default-theme is invoked with no options or parameters, it shows the currently selected theme
+-by default. This output is used by the helper scripts `plymouth-generate-initrd' and `plymouth-update-initrd'
+-to set the proper theme in the initial ramdisk.
+-.SH SEE ALSO
+-.BR grub (8)
+-.br
+-.SH AUTHOR
+-plymouth was originally prototyped and named by Kristian Høgsberg <krh@bitplanet.net>,
+-originally written by Ray Strode <halfline@gmail.com> and has had significant contributions
+-from Charlie Brej <cbrej@cs.man.ac.uk>.  It has also had contributions from
+-Peter Jones <pjones@redhat.com>, Adam Jackson <ajax@nwnk.net>,
+-Frederic Crozat <fcrozat@mandriva.com> and others.
+-It can be downloaded here: <http://www.freedesktop.org/wiki/Software/Plymouth>.
+-.PP
+-This manual page was written by Adrian Glaubitz <glaubitz@physik.fu-berlin.de>.
+diff --git a/docs/plymouth.xml b/docs/plymouth.xml
+new file mode 100644
+index 0000000..0f196c6
+--- /dev/null
++++ b/docs/plymouth.xml
+@@ -0,0 +1,86 @@
++<?xml version='1.0'?>
++<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN"
++        "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
++
++<refentry id="plymouth">
++
++        <refentryinfo>
++                <title>plymouth</title>
++                <productname>plymouth</productname>
++
++                <authorgroup>
++                        <author>
++                                <contrib>Developer</contrib>
++                                <firstname>Kristian</firstname>
++                                <surname>Høgsberg</surname>
++                        </author>
++                        <author>
++                                <contrib>Developer</contrib>
++                                <firstname>Ray</firstname>
++                                <surname>Strode</surname>
++                        </author>
++                </authorgroup>
++
++        </refentryinfo>
++
++        <refmeta>
++                <refentrytitle>plymouth</refentrytitle>
++                <manvolnum>8</manvolnum>
++                <refmiscinfo class="manual">System Administration</refmiscinfo>
++        </refmeta>
++
++        <refnamediv>
++                <refname>plymouth</refname>
++                <refpurpose>A graphical boot system and logger</refpurpose>
++        </refnamediv>
++
++        <refsect1>
++                <title>Description</title>
++
++<para>
++<command>plymouth</command> is a graphical boot system for Linux which takes advantage of
++the kernel-based mode setting (KMS) available for modern graphic  cards
++to  provide  a  seamless,  flickerfree  and  attractive boot screen. It
++allows to choose between various, static or animated  graphical  themes
++to  spruce  up  the  startup  and avoid the noise generated by the vast
++amount of kernel messages while the machine boots into X.   On  systems
++where  kernel-based  mode setting is not available, plymouth falls back
++to a text mode boot screen which provides a simple progress bar to pro‐
++vide feedback during boot.
++</para>
++<para>
++In order for the configured default plymouth theme to be loaded during
++boot, the option `splash' (or `rhgb' for  backward  compatibility  with
++the RHGB  boot  splash) must be provided at the kernel command line.
++Without this command line option, plymouth will default to showing
++detailed boot output.
++</para>
++
++<para>
++During the boot process, the user can switch between the graphical theme
++and the detailed boot output using the Escape key.
++</para>
++
++        </refsect1>
++
++        <refsect1>
++                <title>See Also</title>
++                <para>
++                        <citerefentry><refentrytitle>grub</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
++                        <citerefentry><refentrytitle>plymouth-set-theme</refentrytitle><manvolnum>1</manvolnum></citerefentry>,
++                        <citerefentry><refentrytitle>plymouthd</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
++                        <citerefentry><refentrytitle>plymouth</refentrytitle><manvolnum>1</manvolnum></citerefentry>,
++                        <ulink url="http://www.freedesktop.org/wiki/Software/Plymouth">http://www.freedesktop.org/wiki/Software/Plymouth</ulink>
++                </para>
++        </refsect1>
++
++        <refsect1>
++                <title>Authors</title>
++                <para>
++plymouth  was  originally  prototyped  and  named  by Kristian Høgsberg,
++originally written by Ray Strode and has had significant contributions from
++Charlie Brej. It has also had contributions from Peter Jones, Adam Jackson,
++Frederic Crozat and others.
++                </para>
++        </refsect1>
++</refentry>
+diff --git a/docs/plymouth1.xml b/docs/plymouth1.xml
+new file mode 100644
+index 0000000..b484599
+--- /dev/null
++++ b/docs/plymouth1.xml
+@@ -0,0 +1,351 @@
++<?xml version='1.0'?>
++<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN"
++        "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
++
++<refentry id="plymouth-set-default-theme">
++
++        <refentryinfo>
++                <title>plymouth</title>
++                <productname>plymouth</productname>
++
++                <authorgroup>
++                        <author>
++                                <contrib>Developer</contrib>
++                                <firstname>Kristian</firstname>
++                                <surname>Høgsberg</surname>
++                        </author>
++                        <author>
++                                <contrib>Developer</contrib>
++                                <firstname>Ray</firstname>
++                                <surname>Strode</surname>
++                        </author>
++                </authorgroup>
++
++        </refentryinfo>
++
++        <refmeta>
++                <refentrytitle>plymouth</refentrytitle>
++                <manvolnum>1</manvolnum>
++                <refmiscinfo class="manual">User Commands</refmiscinfo>
++        </refmeta>
++
++        <refnamediv>
++                <refname>plymouth</refname>
++                <refpurpose>Send commands to plymouthd</refpurpose>
++        </refnamediv>
++
++        <refsynopsisdiv>
++                <cmdsynopsis>
++                        <command>plymouth <arg choice="opt" rep="repeat">OPTION</arg></command>
++                </cmdsynopsis>
++                <cmdsynopsis>
++                        <command>plymouth <arg choice="plain">COMMAND <arg choice="opt" rep="repeat">OPTION</arg></arg></command>
++                </cmdsynopsis>
++        </refsynopsisdiv>
++
++        <refsect1>
++                <title>Description</title>
++
++<para>
++The <command>plymouth</command> sends commands to a running
++<command>plymouthd</command>. This is used during the boot
++process to control the display of the graphical boot splash.
++</para>
++
++        </refsect1>
++
++        <refsect1>
++                <title>Options</title>
++
++                <para>
++The following options are understood. These options are supported
++for compatibility with the old <command>rhgb-client</command> interface,
++and have been replaced by the commands that are described in the
++next section.
++</para>
++
++                <variablelist>
++                        <varlistentry>
++                                <term><option>--help</option></term>
++                                <listitem><para>Show summary of options.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--debug</option></term>
++                                <listitem><para>Enable verbose debug logging.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--get-splash-plugin-path</option></term>
++                                <listitem><para>Get directory where splash plugins are installed.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--newroot=<arg>STRING</arg></option></term>
++                                <listitem><para>Tell plymouthd that the new root filesystem is mounted.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--quit</option></term>
++                                <listitem><para>Tell plymouthd to quit.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--ping</option></term>
++                                <listitem><para>Check if plymouthd is running.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--has-active-vt</option></term>
++                                <listitem><para>Check if plymouthd has an active vt.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--sysinit</option></term>
++                                <listitem><para>Tell plymouthd root filesystem is mounted read-write.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--show-splash</option></term>
++                                <listitem><para>Show the splash screen.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--hide-splash</option></term>
++                                <listitem><para>Hide the splash screen.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--ask-for-password</option></term>
++                                <listitem><para>Ask the user for a password.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--ignore-keystroke=<arg>STRING</arg></option></term>
++                                <listitem><para>Remove sensitivity to a keystroke.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--update=<arg>STRING</arg></option></term>
++                                <listitem><para>Tell plymouthd an update about boot progress.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--details</option></term>
++                                <listitem><para>Tell plymouthd there were errors during boot.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--wait</option></term>
++                                <listitem><para>Wait for plymouthd to quit.</para></listitem>
++                        </varlistentry>
++                </variablelist>
++        </refsect1>
++
++        <refsect1>
++		<title>Commands</title>
++
++<para>
++The following commands are understood:
++</para>
++                <variablelist>
++                        <varlistentry>
++                                <term><command>change-mode <arg choice="plain">OPTION</arg></command></term>
++                                <listitem><para>Change the operation mode.</para>
++<variablelist>
++<varlistentry>
++  <term><option>--boot-up</option></term>
++  <listitem><para>Start the system up</para></listitem>
++</varlistentry>
++<varlistentry>
++  <term><option>--shutdown</option></term>
++  <listitem><para>Shutting the system up</para></listitem>
++</varlistentry>
++<varlistentry>
++  <term><option>--updates</option></term>
++  <listitem><para>Applying updates</para></listitem>
++</varlistentry>
++</variablelist>
++</listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>system-update <arg choice="plain">OPTION</arg></command></term>
++                                <listitem><para>Tell plymouthd about boot progress.</para>
++<variablelist>
++<varlistentry>
++  <term><option>--progress=INTEGER</option></term>
++  <listitem><para>The percentage progress of the updates</para></listitem>
++</varlistentry>
++</variablelist>
++</listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>update <arg choice="plain">OPTION</arg></command></term>
++                                <listitem><para>Tell plymouthd about boot status changes.</para>
++<variablelist>
++<varlistentry>
++  <term><option>--status=STRING</option></term>
++  <listitem><para>Tell plymouthd the current boot status</para></listitem>
++</varlistentry>
++</variablelist>
++</listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>update-root-fs <arg choice="plain">OPTION</arg></command></term>
++                                <listitem><para>Tell plymouthd about root filesystem changes.</para>
++<variablelist>
++<varlistentry>
++  <term><option>--new-root-dir=STRING</option></term>
++  <listitem><para>Root filesystem is about to change</para></listitem>
++</varlistentry>
++<varlistentry>
++  <term><option>--read-write</option></term>
++  <listitem><para>Root filesystem is no longer read-only</para></listitem>
++</varlistentry>
++</variablelist>
++</listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>show-splash</command></term>
++                                <listitem><para>Tell plymouthd to show splash screen.</para></listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>hide-splash</command></term>
++                                <listitem><para>Tell plymouthd to hide splash screen.</para></listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>ask-for-password <arg choice="plain">OPTION</arg></command></term>
++                                <listitem><para>Ask the user for a password.</para>
++<variablelist>
++<varlistentry>
++  <term><option>--command=STRING</option></term>
++  <listitem><para>Command to send password to via standard input</para></listitem>
++</varlistentry>
++<varlistentry>
++  <term><option>--prompt=STRING</option></term>
++  <listitem><para>Message to display when asking for password</para></listitem>
++</varlistentry>
++<varlistentry>
++  <term><option>--number-of-tries=INTEGER</option></term>
++  <listitem><para>Number of times to ask before giving up (requires <option>--command</option>)</para></listitem>
++</varlistentry>
++<varlistentry>
++  <term><option>--dont-pause-progress</option></term>
++  <listitem><para>Don't pause boot progress bar while asking</para></listitem>
++</varlistentry>
++</variablelist>
++</listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>ask-question</command></term>
++                                <listitem><para>Ask the user a question.</para>
++<variablelist>
++<varlistentry>
++  <term><option>--command=STRING</option></term>
++  <listitem><para>Command to send the answer to via standard input</para></listitem>
++</varlistentry>
++<varlistentry>
++  <term><option>--prompt=STRING</option></term>
++  <listitem><para>Message to display when asking the question</para></listitem>
++</varlistentry>
++<varlistentry>
++  <term><option>--dont-pause-progress</option></term>
++  <listitem><para>Don't pause boot progress bar while asking</para></listitem>
++</varlistentry>
++</variablelist>
++</listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>display-message <arg choice="plain">OPTION</arg></command></term>
++                                <listitem><para>Display a message.</para>
++<variablelist>
++<varlistentry>
++  <term><option>--text=STRING</option></term>
++  <listitem><para>The message text</para></listitem>
++</varlistentry>
++</variablelist>
++</listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>hide-message <arg choice="plain">OPTION</arg></command></term>
++                                <listitem><para>Hide a message.</para>
++<variablelist>
++<varlistentry>
++  <term><option>--text=STRING</option></term>
++  <listitem><para>The message text</para></listitem>
++</varlistentry>
++</variablelist>
++</listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>watch-keystroke <arg choice="plain">OPTION</arg></command></term>
++                                <listitem><para>Become sensitive to a keystroke.</para>
++<variablelist>
++<varlistentry>
++  <term><option>--command=STRING</option></term>
++  <listitem><para>Command to send keystroke to via standard input</para></listitem>
++</varlistentry>
++<varlistentry>
++  <term><option>--keys=STRING</option></term>
++  <listitem><para>Keys to become sensitive to</para></listitem>
++</varlistentry>
++</variablelist>
++</listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>ignore-keystroke <arg choice="plain">OPTION</arg></command></term>
++                                <listitem><para>Remove sensitivity to a keystroke.</para>
++<variablelist>
++<varlistentry>
++  <term><option>--keys=STRING</option></term>
++  <listitem><para>Keys to remove sensitivitiy from</para></listitem>
++</varlistentry>
++</variablelist>
++</listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>pause-progress</command></term>
++                                <listitem><para>Pause boot progress bar.</para></listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>unpause-progress</command></term>
++                                <listitem><para>Unpause boot progress bar.</para></listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>report-error</command></term>
++                                <listitem><para>Tell plymouthd there were errors during boot.</para></listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>deactivate</command></term>
++                                <listitem><para>Tell plymouthd to deactivate.</para></listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>reactivate</command></term>
++                                <listitem><para>Tell plymouthd to reactivate.</para></listitem>
++                        </varlistentry>
++                        <varlistentry>
++                                <term><command>quit <arg choice="plain">OPTION</arg></command></term>
++                                <listitem><para>Tell plymouthd to quit.</para>
++<variablelist>
++<varlistentry>
++  <term><option>--retain-splash</option></term>
++  <listitem><para>Don't explicitly hide boot splash on exit</para></listitem>
++</varlistentry>
++</variablelist>
++</listitem>
++                        </varlistentry>
++                </variablelist>
++
++        </refsect1>
++
++        <refsect1>
++                <title>See Also</title>
++                <para>
++                        <citerefentry><refentrytitle>grub</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
++                        <citerefentry><refentrytitle>plymouth</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
++                        <citerefentry><refentrytitle>plymouthd</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
++                        <ulink url="http://www.freedesktop.org/wiki/Software/Plymouth">http://www.freedesktop.org/wiki/Software/Plymouth</ulink>
++                </para>
++        </refsect1>
++
++</refentry>
+diff --git a/docs/plymouthd.xml b/docs/plymouthd.xml
+new file mode 100644
+index 0000000..4e7e499
+--- /dev/null
++++ b/docs/plymouthd.xml
+@@ -0,0 +1,121 @@
++<?xml version='1.0'?>
++<!DOCTYPE refentry PUBLIC "-//OASIS//DTD DocBook XML V4.2//EN"
++        "http://www.oasis-open.org/docbook/xml/4.2/docbookx.dtd">
++
++<refentry id="plymouthd">
++
++        <refentryinfo>
++                <title>plymouthd</title>
++                <productname>plymouth</productname>
++
++                <authorgroup>
++                        <author>
++                                <contrib>Developer</contrib>
++                                <firstname>Kristian</firstname>
++                                <surname>Høgsberg</surname>
++                        </author>
++                        <author>
++                                <contrib>Developer</contrib>
++                                <firstname>Ray</firstname>
++                                <surname>Strode</surname>
++                        </author>
++                </authorgroup>
++
++        </refentryinfo>
++
++        <refmeta>
++                <refentrytitle>plymouthd</refentrytitle>
++                <manvolnum>8</manvolnum>
++                <refmiscinfo class="manual">System Administration</refmiscinfo>
++        </refmeta>
++
++        <refnamediv>
++                <refname>plymouthd</refname>
++                <refpurpose>The plymouth daemon</refpurpose>
++        </refnamediv>
++
++        <refsynopsisdiv>
++                <cmdsynopsis>
++                        <command>plymouthd <arg choice="opt" rep="repeat">OPTION</arg></command>
++                </cmdsynopsis>
++        </refsynopsisdiv>
++
++        <refsect1>
++                <title>Description</title>
++
++<para>
++The <command>plymouthd</command> daemon is usually run out of
++the initrd. It does the heavy lifting of the plymouth system, logging
++the session and showing the splash screen.
++</para>
++<para>
++The <command>plymouth</command> is used to send commands to plymouthd
++that control its behaviour.
++</para>
++
++        </refsect1>
++
++        <refsect1>
++                <title>Options</title>
++
++                <para>The following options are understood:</para>
++
++                <variablelist>
++                        <varlistentry>
++                                <term><option>--help</option></term>
++                                <listitem><para>Show summary of options.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--attach-to-session</option></term>
++                                <listitem><para>Redirect console messages from screen to log.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--no-daemon</option></term>
++                                <listitem><para>Do not daemonize.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--debug</option></term>
++                                <listitem><para>Output debugging information.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--debug-file=STRING</option></term>
++                                <listitem><para>File to write debugging information to.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--mode=MODE</option></term>
++                                <listitem><para>Set mode to either boot or shutdown.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--pid-file=STRING</option></term>
++                                <listitem><para>Write the PID of the daemon to a file.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--kernel-command-line=STRING</option></term>
++                                <listitem><para>Fake kernel commandline to use.</para></listitem>
++                        </varlistentry>
++
++                        <varlistentry>
++                                <term><option>--tty=STRING</option></term>
++                                <listitem><para>TTY to ues instead of default.</para></listitem>
++                        </varlistentry>
++                </variablelist>
++        </refsect1>
++
++        <refsect1>
++                <title>See Also</title>
++                <para>
++                        <citerefentry><refentrytitle>grub</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
++                        <citerefentry><refentrytitle>plymouth</refentrytitle><manvolnum>8</manvolnum></citerefentry>,
++                        <citerefentry><refentrytitle>plymouth</refentrytitle><manvolnum>1</manvolnum></citerefentry>,
++                        <ulink url="http://www.freedesktop.org/wiki/Software/Plymouth">http://www.freedesktop.org/wiki/Software/Plymouth</ulink>
++                </para>
++        </refsect1>
++
++</refentry>
+-- 
+1.8.3.1
+
