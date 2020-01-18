@@ -1,6 +1,6 @@
-diff -up plymouth-0.8.4/src/plugins/splash/text/plugin.c.colors plymouth-0.8.4/src/plugins/splash/text/plugin.c
---- plymouth-0.8.4/src/plugins/splash/text/plugin.c.colors	2012-03-20 11:26:05.343149459 -0400
-+++ plymouth-0.8.4/src/plugins/splash/text/plugin.c	2012-03-20 11:26:41.943521354 -0400
+diff -up plymouth-0.8.4/src/plugins/splash/tribar/plugin.c.colors plymouth-0.8.4/src/plugins/splash/text/plugin.c
+--- plymouth-0.8.4/src/plugins/splash/tribar/plugin.c.colors	2012-03-20 11:26:05.343149459 -0400
++++ plymouth-0.8.4/src/plugins/splash/tribar/plugin.c	2012-03-20 11:26:41.943521354 -0400
 @@ -183,10 +183,10 @@ view_start_animation (view_t *view)
                                      0xffffff);
    ply_terminal_set_color_hex_value (terminal,

@@ -310,6 +310,18 @@ ply_boot_connection_on_password_answer (ply_boot_connection_t *connection,
 }
 
 static void
+ply_boot_connection_on_splash_shown (ply_boot_connection_t *connection)
+{
+  ply_trace ("shown");
+  if (!ply_write (connection->fd,
+                  PLY_BOOT_PROTOCOL_RESPONSE_TYPE_ACK,
+                  strlen (PLY_BOOT_PROTOCOL_RESPONSE_TYPE_ACK)))
+    {
+      ply_trace ("could not finish writing deactivate reply: %m");
+    }
+}
+
+static void
 ply_boot_connection_on_deactivated (ply_boot_connection_t *connection)
 {
   ply_trace ("deactivated");
@@ -477,9 +489,23 @@ ply_boot_connection_on_request (ply_boot_connection_t *connection)
     }
   else if (strcmp (command, PLY_BOOT_PROTOCOL_REQUEST_TYPE_SHOW_SPLASH) == 0)
     {
+      ply_trigger_t *show_trigger;
+
       ply_trace ("got show splash request");
+
+      show_trigger = ply_trigger_new (NULL);
+
+      ply_trigger_add_handler (show_trigger,
+                               (ply_trigger_handler_t)
+                               ply_boot_connection_on_splash_shown,
+                               connection);
+
       if (server->show_splash_handler != NULL)
-        server->show_splash_handler (server->user_data, server);
+        server->show_splash_handler (server->user_data, show_trigger, server);
+
+      free (argument);
+      free (command);
+      return;
     }
   else if (strcmp (command, PLY_BOOT_PROTOCOL_REQUEST_TYPE_HIDE_SPLASH) == 0)
     {
@@ -831,183 +857,4 @@ ply_boot_server_attach_to_event_loop (ply_boot_server_t *server,
                                  server); 
 }
 
-#ifdef PLY_BOOT_SERVER_ENABLE_TEST
-
-#include <stdio.h>
-
-#include "ply-event-loop.h"
-#include "ply-boot-server.h"
-
-static void 
-on_update (ply_event_loop_t  *loop,
-           const char        *status)
-{
-  printf ("new status is '%s'\n", status);
-}
-
-static void
-on_newroot (ply_event_loop_t *loop)
-{
-  printf ("got newroot request\n");
-}
-
-static void
-on_system_initialized (ply_event_loop_t *loop)
-{
-  printf ("got sysinit done request\n");
-}
-
-static void
-on_show_splash (ply_event_loop_t *loop)
-{
-  printf ("got show splash request\n");
-}
-
-static void
-on_hide_splash (ply_event_loop_t *loop)
-{
-  printf ("got hide splash request\n");
-}
-
-static void
-on_deactivate (ply_event_loop_t *loop)
-{
-  printf ("got deactivate request\n");
-}
-
-static void
-on_reactivate (ply_event_loop_t *loop)
-{
-  printf ("got reactivate request\n");
-}
-
-static void
-on_quit (ply_event_loop_t *loop)
-{
-  printf ("got quit request, quiting...\n");
-  ply_event_loop_exit (loop, 0);
-}
-
-static void
-on_error (ply_event_loop_t *loop)
-{
-  printf ("got error starting service\n");
-}
-
-static char *
-on_ask_for_password (ply_event_loop_t *loop)
-{
-  printf ("got password request, returning 'password'...\n");
-
-  return strdup ("password");
-}
-
-static void
-on_ask_question (ply_event_loop_t *loop)
-{
-  printf ("got question request\n");
-  return;
-}
-
-static void
-on_display_message (ply_event_loop_t *loop)
-{
-  printf ("got display message request\n");
-  return;
-}
-
-static void
-on_hide_message (ply_event_loop_t *loop)
-{
-  printf ("got hide message request\n");
-  return;
-}
-
-static void
-on_watch_for_keystroke (ply_event_loop_t *loop)
-{
-  printf ("got keystroke request\n");
-
-  return;
-}
-
-static void
-on_progress_pause (ply_event_loop_t *loop)
-{
-  printf ("got progress pause request\n");
-
-  return;
-}
-
-static void
-on_progress_unpause (ply_event_loop_t *loop)
-{
-  printf ("got progress unpause request\n");
-
-  return;
-}
-
-static void
-on_ignore_keystroke (ply_event_loop_t *loop)
-{
-  printf ("got keystroke ignore request\n");
-
-  return;
-}
-
-static bool
-on_has_active_vt (ply_event_loop_t *loop)
-{
-  printf ("got has_active vt? request\n");
-  return true;
-}
-
-int
-main (int    argc,
-      char **argv)
-{
-  ply_event_loop_t *loop;
-  ply_boot_server_t *server;
-  int exit_code;
-
-  exit_code = 0;
-
-  loop = ply_event_loop_new ();
-
-  server = ply_boot_server_new ((ply_boot_server_update_handler_t) on_update,
-                                (ply_boot_server_change_mode_handler_t) on_change_mode,
-                                (ply_boot_server_system_update_handler_t) on_system_update,
-                                (ply_boot_server_ask_for_password_handler_t) on_ask_for_password,
-                                (ply_boot_server_ask_question_handler_t) on_ask_question,
-                                (ply_boot_server_display_message_handler_t) on_display_message,
-                                (ply_boot_server_hide_message_handler_t) on_hide_message,
-                                (ply_boot_server_watch_for_keystroke_handler_t) on_watch_for_keystroke,
-                                (ply_boot_server_ignore_keystroke_handler_t) on_ignore_keystroke,
-                                (ply_boot_server_progress_pause_handler_t) on_progress_pause,
-                                (ply_boot_server_progress_unpause_handler_t) on_progress_unpause,
-                                (ply_boot_server_show_splash_handler_t) on_show_splash,
-                                (ply_boot_server_hide_splash_handler_t) on_hide_splash,
-                                (ply_boot_server_newroot_handler_t) on_newroot,
-                                (ply_boot_server_system_initialized_handler_t) on_system_initialized,
-                                (ply_boot_server_error_handler_t) on_error,
-                                (ply_boot_server_deactivate_handler_t) on_deactivate,
-                                (ply_boot_server_reactivate_handler_t) on_reactivate,
-                                (ply_boot_server_quit_handler_t) on_quit,
-                                (ply_boot_server_has_active_vt_handler_t) on_has_active_vt,
-                                loop);
-
-  if (!ply_boot_server_listen (server))
-    {
-      perror ("could not start boot status daemon");
-      return errno;
-    }
-
-  ply_boot_server_attach_to_event_loop (server, loop);
-  exit_code = ply_event_loop_run (loop);
-  ply_boot_server_free (server);
-
-  return exit_code;
-}
-
-#endif /* PLY_BOOT_SERVER_ENABLE_TEST */
 /* vim: set ts=4 sw=4 expandtab autoindent cindent cino={.5s,(0: */

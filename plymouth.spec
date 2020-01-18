@@ -2,16 +2,18 @@
 %define plymouthclient_execdir %{_bindir}
 %define plymouth_libdir %{_libdir}
 %define plymouth_initrd_file /boot/initrd-plymouth.img
+%global _hardened_build 1
 
 Summary: Graphical Boot Animation and Logger
 Name: plymouth
 Version: 0.8.9
-Release: 0.2013.03.26.4%{?dist}
+Release: 0.10.20140113%{?dist}
 License: GPLv2+
 Group: System Environment/Base
 Source0: http://freedesktop.org/software/plymouth/releases/%{name}-%{version}.tar.bz2
 Source1: boot-duration
 Source2: charge.plymouth
+Source3: plymouth-update-initrd
 
 URL: http://www.freedesktop.org/wiki/Software/Plymouth
 BuildRoot: %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
@@ -24,6 +26,7 @@ Conflicts: systemd < 185-3
 
 BuildRequires: pkgconfig(libdrm)
 BuildRequires: kernel-headers
+BuildRequires: pkgconfig(libudev)
 BuildRequires: automake, autoconf, libtool
 BuildRequires: libxslt, docbook-style-xsl
 
@@ -33,9 +36,15 @@ Obsoletes: plymouth-theme-pulser < 0.7.0-0.2009.05.08.2
 Obsoletes: plymouth-gdm-hooks < 0.8.4-0.20101119.4
 Obsoletes: plymouth-utils < 0.8.4-0.20101119.4
 
-Patch2: drm-dirty-fb.patch
-Patch3: improve-man-pages.patch
-Patch4: add-two-step-features.patch
+Patch0: dont-block-show-splash.patch
+Patch1: always-add-text-splash.patch
+Patch2: fix-text-splash-os-string.patch
+Patch3: fix-details.patch
+Patch4: fix-startup-race.patch
+Patch5: fix-hide-splash.patch
+Patch6: ignore-early-fb-devices.patch
+Patch7: fix-ask-password-race.patch
+Patch8: serial-console-fixes.patch
 Patch99: colors.patch
 
 %description
@@ -244,9 +253,15 @@ Plymouth. It features a small spinner on a dark background.
 
 %prep
 %setup -q
-%patch2 -p1 -b .drm-dirty
-%patch3 -p1 -b .improve-man-pages
-%patch4 -p1 -b .add-two-step-features
+%patch0 -p1 -b .dont-block-show-splash
+%patch1 -p1 -b .always-add-text-splash
+%patch2 -p1 -b .fix-text-splash-os-string
+%patch3 -p1 -b .fix-details
+%patch4 -p1 -b .fix-startup-race
+%patch5 -p1 -b .fix-hide-splash
+%patch6 -p1 -b .ignore-early-fb-devices
+%patch7 -p1 -b .fix-ask-password-race
+%patch8 -p1 -b .serial-console-fixes
 %patch99 -p1 -b .colors
 
 # Change the default theme
@@ -255,6 +270,7 @@ sed -i -e 's/fade-in/charge/g' src/plymouthd.defaults
 %build
 autoreconf -f -i
 %configure --enable-tracing --disable-tests                      \
+           --with-release-file=/etc/os-release                   \
            --with-logo=%{_datadir}/pixmaps/system-logo-white.png \
            --with-background-start-color-stop=0xc6bdd2           \
            --with-background-end-color-stop=0x4e376b             \
@@ -292,6 +308,15 @@ cp $RPM_BUILD_ROOT%{_datadir}/plymouth/themes/glow/{box,bullet,entry,lock}.png $
 
 # Drop glow, it's not very Fedora-y
 rm -rf $RPM_BUILD_ROOT%{_datadir}/plymouth/themes/glow
+
+# Revert text theme back to the tribar one
+rm -rf $RPM_BUILD_ROOT%{_datadir}/plymouth/themes/text
+mv $RPM_BUILD_ROOT%{_libdir}/plymouth/tribar.so $RPM_BUILD_ROOT%{_libdir}/plymouth/text.so
+mv $RPM_BUILD_ROOT%{_datadir}/plymouth/themes/tribar $RPM_BUILD_ROOT%{_datadir}/plymouth/themes/text
+mv $RPM_BUILD_ROOT%{_datadir}/plymouth/themes/text/tribar.plymouth $RPM_BUILD_ROOT%{_datadir}/plymouth/themes/text/text.plymouth
+sed -i -e 's/tribar/text/' $RPM_BUILD_ROOT%{_datadir}/plymouth/themes/text/text.plymouth
+
+cp $RPM_SOURCE_DIR/plymouth-update-initrd $RPM_BUILD_ROOT%{_libexecdir}/plymouth/plymouth-update-initrd
 
 %clean
 rm -rf $RPM_BUILD_ROOT
@@ -397,11 +422,7 @@ fi
 %{_localstatedir}/spool/plymouth
 %{_mandir}/man?/*
 %ghost %{_localstatedir}/lib/plymouth/boot-duration
-%if 0%{?fedora} > 17 || 0%{?rhel} > 6
-/lib/systemd/system/*
-%else
-%{_prefix}/lib/systemd/system/plymouth-*.service
-%endif
+%{_prefix}/lib/systemd/system/*
 
 %files devel
 %defattr(-, root, root)
@@ -505,6 +526,83 @@ fi
 %defattr(-, root, root)
 
 %changelog
+* Thu Mar 06 2014 Ray Strode <rstrode@redhat.com> 0.8.9-0.10.20140113
+- more serial console fixes
+  Resolves: #1058049
+
+* Mon Mar 03 2014 Ray Strode <rstrode@redhat.com> 0.8.9-0.9.20140113
+- Ignore early fb devices
+  Resolves: #1063758
+  Resolves: #1064235
+  Resolves: #1066641
+- Ignore udev if using lone serial console
+  Resolves: #1058049
+- Fix password at start up race
+  Resolves: #1070707
+  Resolves: #1073145
+
+* Tue Feb 11 2014 Ray Strode <rstrode@redhat.com> 0.8.9-0.8.20140113
+- Enable position-independent code
+  Resolves: #1063953
+
+* Thu Feb 06 2014 Ray Strode <rstrode@redhat.com> 0.8.9-0.7.20140113
+- Release terminal on hide-splash
+  Resolves: #1062334
+
+* Wed Feb 05 2014 Ray Strode <rstrode@redhat.com> 0.8.9-0.6.20140113
+- Fix race causing assertion failure at startup
+  Resolves: #1061186
+
+* Tue Jan 28 2014 Daniel Mach <dmach@redhat.com> - 0.8.9-0.5.20140113
+- Mass rebuild 2014-01-24
+
+* Fri Jan 24 2014 Ray Strode <rstrode@redhat.com> 0.8.9-0.4.20140113
+- Make booting without "rhgb" work
+  Resolves: #1050876
+
+* Fri Jan 17 2014 Ray Strode <rstrode@redhat.com> 0.8.9-0.3.20140113
+- Read OS string from REDHAT_BUGZILLA_PRODUCT instead of PRETTY_NAME
+  in /etc/os-release to work around a lorax bug.
+  Resolves: #911553
+- Fix text splash when explicitly configured by user
+  Related: #911553
+  Related: #1026571
+
+* Thu Jan 16 2014 Ray Strode <rstrode@redhat.com> 0.8.9-0.2.20140113
+- Remove artificial 5 second delay for asking for password
+  Related: #1043689
+
+* Wed Jan 15 2014 Ray Strode <rstrode@redhat.com> 0.8.9-0.1.20140113
+- Update to more compliant versioning scheme
+  Resolves: #1053769
+
+* Mon Jan 13 2014 Ray Strode <rstrode@redhat.com> 0.8.9-0.2014.01.13.1
+- more udev fixes
+  Related: #1026571
+  Related: #1043689
+
+* Fri Jan 10 2014 Ray Strode <rstrode@redhat.com> 0.8.9-0.2014.01.10.2
+- Fix plymouth-set-default-theme -R
+  Resolves: #1045514
+
+* Fri Jan 10 2014 Ray Strode <rstrode@redhat.com> 0.8.9-0.2014.01.10.1
+- Update to latest snapshot
+- Fixes ask-for-password feature
+  Resolves: #1043689
+- Drops bogus delay when hitting escape
+  Resolves: #1049379
+
+* Fri Dec 27 2013 Daniel Mach <dmach@redhat.com> - 0.8.9-0.2014
+- Mass rebuild 2013-12-27
+
+* Tue Dec 10 2013 Ray Strode <rstrode@redhat.com> 0.8.9-0.2013.12.10.1
+- Update to latest snapshot, but revert text splash back to tribar
+- Fixes systemd unit files and lets us drop our upstreamed patches
+  Resolves: #1040015
+- Uses udev for device enumeration
+  Resolves: #1026571
+- Correct "charge" theme description
+
 * Fri Nov 08 2013 Ray Strode <rstrode@redhat.com> 0.8.9-0.2013.03.26.4
 - Fix unlock screen
   Related: #1002219
